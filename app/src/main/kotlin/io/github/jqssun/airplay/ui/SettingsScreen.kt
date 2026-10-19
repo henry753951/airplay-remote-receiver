@@ -89,11 +89,14 @@ fun SettingsScreen(viewModel: MainViewModel) {
     ) {
         SectionHeader(stringResource(R.string.section_server))
 
-        SettingTextField(
-            label = stringResource(R.string.setting_server_name),
-            value = serverName,
-            onCommit = { viewModel.set(Prefs.SERVER_NAME, it) }
-        )
+        // on TV the name lives only under General, with validation and both services in mind
+        if (!isTv()) {
+            SettingTextField(
+                label = stringResource(R.string.setting_server_name),
+                value = serverName,
+                onCommit = { viewModel.set(Prefs.SERVER_NAME, it) }
+            )
+        }
 
         SettingTextField(
             label = stringResource(R.string.setting_server_port),
@@ -518,7 +521,7 @@ private fun SettingResolution(
                 if (editing || !isPreset) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
+                        TvEditGate(Modifier.weight(1f)) { gate -> OutlinedTextField(
                             value = width,
                             onValueChange = { width = it.filter { c -> c.isDigit() }.take(5) },
                             singleLine = true,
@@ -527,9 +530,9 @@ private fun SettingResolution(
                                 keyboardType = KeyboardType.Number,
                                 imeAction = ImeAction.Next
                             ),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
+                            modifier = gate.fillMaxWidth()
+                        ) }
+                        TvEditGate(Modifier.weight(1f)) { gate -> OutlinedTextField(
                             value = height,
                             onValueChange = { height = it.filter { c -> c.isDigit() }.take(5) },
                             singleLine = true,
@@ -546,8 +549,8 @@ private fun SettingResolution(
                                     editing = false
                                 }
                             },
-                            modifier = Modifier.weight(1f)
-                        )
+                            modifier = gate.fillMaxWidth()
+                        ) }
                     }
                 }
             }
@@ -574,7 +577,12 @@ private fun SettingTextField(
     fun save() {
         if (valid && text != value) onCommit(text)
     }
-    OutlinedTextField(
+    TvEditGate(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp)
+    ) { gate -> OutlinedTextField(
         value = text,
         onValueChange = { text = if (range == null) it else it.filter { c -> c.isDigit() }.take(6) },
         label = { Text(label) },
@@ -586,12 +594,10 @@ private fun SettingTextField(
             imeAction = ImeAction.Done
         ),
         keyboardActions = doneAndHide(::save),
-        modifier = Modifier
+        modifier = gate
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 8.dp)
             .onFocusChanged { if (!it.isFocused) save() }
-    )
+    ) }
 }
 
 @Composable
@@ -624,7 +630,7 @@ private fun SettingChipField(
                 }
                 if (editing || !isPreset) {
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    TvEditGate(Modifier.fillMaxWidth()) { gate -> OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
                         singleLine = true,
@@ -639,8 +645,8 @@ private fun SettingChipField(
                                 editing = false
                             }
                         },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                        modifier = gate.fillMaxWidth()
+                    ) }
                 }
             }
         }

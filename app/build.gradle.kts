@@ -30,11 +30,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.henry753951.airplaytv"
-        minSdk = 23
+        applicationId = providers.gradleProperty("applicationIdOverride").getOrElse("io.github.henry753951.airplaytv")
+        minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(2)
+        versionName = "0.2.0"
 
         externalNativeBuild {
             cmake {
@@ -115,6 +115,11 @@ tasks.configureEach {
 }
 
 dependencies {
+    implementation("dev.mobile:dadb:1.2.6") {
+        // The published JVM-native test launcher is not an Android runtime dependency.
+        exclude(group = "org.graalvm.buildtools", module = "junit-platform-native")
+    }
+    testImplementation("junit:junit:4.13.2")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime)
@@ -141,3 +146,12 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 }
+
+val checkRemoteLibrary = tasks.register("checkRemoteLibrary") {
+    doLast {
+        check(file("src/main/jniLibs/armeabi-v7a/libatv_android.so").isFile) {
+            "Build the Remote receiver first: scripts/build-remote.sh"
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(checkRemoteLibrary) }

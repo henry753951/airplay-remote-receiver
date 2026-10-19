@@ -24,6 +24,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.jqssun.airplay.service.AirPlayService
 import io.github.jqssun.airplay.ui.MainScreen
+import io.github.jqssun.airplay.ui.isTvDevice
 import io.github.jqssun.airplay.ui.theme.AirPlayTheme
 import io.github.jqssun.airplay.viewmodel.LocalNetworkAccess
 import io.github.jqssun.airplay.viewmodel.MainViewModel
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (true) {
                     viewModel.updateFromService()
-                    delay(200)
+                    delay(if (viewModel.connectionCount.value > 0) 200 else 1000)
                 }
             }
         }
@@ -168,7 +169,8 @@ class MainActivity : ComponentActivity() {
     }
 
     fun enterPip() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        // this TV's launcher has no pip; the service keeps receiving in the background instead
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isTvDevice()) return
         enterPictureInPictureMode(_pipParams())
     }
 
@@ -185,7 +187,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun _shouldAutoPip(): Boolean =
-        viewModel.serverState.value == AirPlayService.ServerState.RUNNING &&
+        !isTvDevice() &&
+            viewModel.serverState.value == AirPlayService.ServerState.RUNNING &&
             viewModel.connectionCount.value > 0
 
     override fun onUserLeaveHint() {
@@ -202,8 +205,8 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         // never stop mid-session
         if (!viewModel.pref(Prefs.RUN_IN_BACKGROUND).value && !isChangingConfigurations &&
-            viewModel.serverState.value == AirPlayService.ServerState.RUNNING &&
-            viewModel.connectionCount.value == 0) {
+            viewModel.connectionCount.value == 0 &&
+            !com.corvofeng.fakeatv.RemoteState.connected.value) {
             viewModel.stopServer()
         }
     }

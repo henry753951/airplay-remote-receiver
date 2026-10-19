@@ -31,6 +31,8 @@ class VideoRenderer(ctx: Context) {
     @Volatile var droppedFrames = 0L; private set
     @Volatile var framePacingJitterUs = 0L; private set
 
+    var colorRange = "auto"
+    @Volatile var colorInfo = ""; private set
     var enforceSdr = true
     var keyAllowFrameDrop = true
     var scheduledOutputBufferRelease = true
@@ -84,10 +86,10 @@ class VideoRenderer(ctx: Context) {
             }
             .reduceOrNull { (w1, h1), (w2, h2) -> minOf(w1, w2) to minOf(h1, h2) } ?: (1920 to 1080)
 
-    // codec per mirror session; pipeline persists across sessions
+    // Release GPU resources while idle; the display surface is restored for the next session.
     fun startSession() = synchronized(lock) { _resetStats() }
 
-    fun stopSession() = synchronized(lock) { stopCodec() }
+    fun stopSession() = synchronized(lock) { stopCodec(); pipeline.release() }
 
     private fun _resetStats() {
         fps = 0; bitrateBps = 0; frameCount = 0; codecName = ""
@@ -186,6 +188,7 @@ class VideoRenderer(ctx: Context) {
     }
 
     private fun startCodec(h265: Boolean) {
+        pipeline.setDisplaySurface(displaySurface)
         pipeline.start()
         pipeline.setVideoSize(videoWidth, videoHeight)
         val s = pipeline.inputSurface ?: return
@@ -230,9 +233,9 @@ class VideoRenderer(ctx: Context) {
         setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(videoWidth * videoHeight * 3 / 4, 1024 * 1024))
         if (enforceSdr) {
             setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709)
-            setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
             setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
         }
+        ColorPolicy.range(colorRange)?.let { setInteger(MediaFormat.KEY_COLOR_RANGE, it) }
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             setInteger(MediaFormat.KEY_ALLOW_FRAME_DROP, if (keyAllowFrameDrop) 1 else 0)
         }
@@ -270,6 +273,14 @@ class VideoRenderer(ctx: Context) {
         val info = MediaCodec.BufferInfo()
         while (true) {
             val idx = c.dequeueOutputBuffer(info, 0)
+            if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                val f = c.outputFormat
+                colorInfo = listOf(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.KEY_COLOR_RANGE,
+                    MediaFormat.KEY_COLOR_TRANSFER).joinToString { "$it=${if (f.containsKey(it)) f.getInteger(it) else 0}" }
+                Log.i(TAG, "Decoder output: $colorInfo")
+                benchmarkLogCallback?.invoke("Decoder output: $colorInfo")
+                continue
+            }
             if (idx < 0) break
             _recordOutputFrameTime()
             if (scheduledOutputBufferRelease) {

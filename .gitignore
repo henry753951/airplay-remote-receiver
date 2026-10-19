@@ -28,3 +28,7 @@ adbkey*
 *.log
 /dist/
 /artifacts/
+
+/remote/target/
+/app/src/main/jniLibs/
+/.kotlin/

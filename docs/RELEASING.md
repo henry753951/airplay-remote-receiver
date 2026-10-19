@@ -1,6 +1,8 @@
 # Releasing AirPlay TV
 
-1. Update the Android version name and version code. Run all CI checks.
+1. Update the Android version name and version code. Run Rust protocol tests, Android unit tests and all CI checks.
+   Build `scripts/build-remote.sh` before Gradle; include `remote/` and its MIT license
+   in complete source archives.
 2. Build the release APK using the README instructions. The repository contains
    no release keystore; retain the same signing identity for future updates.
 3. Sign with Android SDK `apksigner`. Read passwords from protected files or

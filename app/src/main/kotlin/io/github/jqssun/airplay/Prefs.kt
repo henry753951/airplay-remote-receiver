@@ -72,11 +72,14 @@ object Prefs {
 
     fun forced(v: String) = when (v) { ON -> true; OFF -> false; else -> null }
 
-    val SERVER_NAME = str("server_name", "AirPlay TV", restart = true)
+    val SERVER_NAME = str("server_name", "AirPlay TV", restart = true) { it.isNotBlank() && it.toByteArray(Charsets.UTF_8).size <= 63 && it.none(Char::isISOControl) }
     val SERVER_PORT = int("server_port", 7000, 1..65535, restart = true)
     val AUTO_START = bool("auto_start", true)
     val BOOT_AUTO_START = bool("boot_auto_start", true)
     val RUN_IN_BACKGROUND = bool("run_in_background", true)
+    val REMOTE_ENABLED = bool("remote_enabled", true, restart = true)
+    val STANDBY_REACHABLE = bool("standby_reachable", true, restart = true)
+    val COLOR_RANGE = str("color_range", AUTO, restart = true) { it in setOf(AUTO, "full", "limited") }
     val H265 = tri("h265", restart = true)
     val ENFORCE_SDR = bool("enforce_sdr", true, restart = true)
     val KEY_ALLOW_FRAME_DROP = bool(MediaFormat.KEY_ALLOW_FRAME_DROP, true, restart = true)

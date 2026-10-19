@@ -24,3 +24,18 @@ is independent and is not affiliated with or endorsed by Apple Inc.
 
 License texts and dependency notices are also bundled in the APK asset
 `third-party-licenses.txt`.
+
+## Remote reception
+
+The `remote/` workspace and Android input bridge include code from
+[corvofeng/atv-core](https://github.com/corvofeng/atv-core)
+(upstream commit `8a4ada29bb7cad31e0315c3387b277eb9ab8c988`, integration snapshot
+[Remote TV](https://github.com/henry753951/remote-tv/commit/4553e57600a063e57d29b3e059e46ee79a451179)).
+These components retain their MIT license in `remote/LICENSE`. The combined
+application is distributed under GPL-3.0.
+
+Protocol behavior also follows the MIT-licensed
+[pyatv](https://github.com/postlund/pyatv), Copyright (c) 2020 Pierre Ståhl.
+The original Rust workspace, lockfile, JNI namespaces and notices are retained.
+The CLI is included for source completeness; Android ARMv7 is the release target.
+Dadb is Apache-2.0. Rust dependency licenses are listed in the bundled notices.
