@@ -704,33 +704,33 @@ private fun OverviewContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
-                val showFullscreen = state == ServerState.RUNNING && mirroringActive
-                if (showFullscreen || onSettings != null) {
-                    // one row inside the rounded frame, so nothing hangs past its corner
-                    Row(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                        if (showFullscreen && !tv) {
-                            IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
-                                Icon(
-                                    painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
-                            }
+            }
+            val showFullscreen = state == ServerState.RUNNING && mirroringActive
+            if (showFullscreen || onSettings != null) {
+                // one row inside the rounded frame, so nothing hangs past its corner
+                Row(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+                    if (showFullscreen && !tv) {
+                        IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
+                            Icon(
+                                painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
                         }
-                        if (showFullscreen) {
-                            IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus(CircleShape)) {
-                                Icon(
-                                    Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                )
-                            }
+                    }
+                    if (showFullscreen) {
+                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus(CircleShape)) {
+                            Icon(
+                                Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
                         }
-                        if (onSettings != null) {
-                            IconButton(onClick = onSettings, modifier = Modifier.focusRequester(settingsFocus).dpadFocus(CircleShape)) {
-                                Icon(
-                                    Icons.Default.Settings, contentDescription = stringResource(R.string.tv_settings),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                )
-                            }
+                    }
+                    if (onSettings != null) {
+                        IconButton(onClick = onSettings, modifier = Modifier.focusRequester(settingsFocus).dpadFocus(CircleShape)) {
+                            Icon(
+                                Icons.Default.Settings, contentDescription = stringResource(R.string.tv_settings),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
                         }
                     }
                 }

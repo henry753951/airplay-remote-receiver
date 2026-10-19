@@ -165,7 +165,7 @@
 
     <!-- Settings: Connection -->
     <string name="setting_require_pin">Require Code</string>
-    <string name="setting_require_pin_desc">Require 4-digit PIN for each new connection</string>
+    <string name="setting_require_pin_desc">Require a 4-digit code for each new connection</string>
     <string name="setting_allow_new_conn">Allow new connections</string>
     <string name="setting_allow_new_conn_desc">Drop current sender when a new one connects</string>
 
