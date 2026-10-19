@@ -1,15 +1,15 @@
-# AirPlay TV
+# AirPlay & Remote Receiver
 
 在同一個 Android TV App 接收 AirPlay 與 iPhone 內建 Apple TV 遙控器。
 共用電視名稱、簡約介面與背景服務，提供繁體中文／英文及分層設定。
 
-[下載 APK](https://github.com/henry753951/airplay-tv/releases/latest) · [English](../README.md)
+[下載 APK](https://github.com/henry753951/airplay-remote-receiver/releases/latest) · [English](../README.md)
 
 ## 使用方式
 
-1. 在電視安裝 Releases 的簽章 APK，開啟 AirPlay TV 並允許需要的權限。
+1. 在電視安裝 Releases 的簽章 APK，開啟 AirPlay & Remote Receiver 並允許需要的權限。
 2. 手機、Mac 與電視連到同一區域網路，保持配對碼驗證開啟。
-3. iPhone／iPad：「控制中心 → 螢幕鏡像輸出 → AirPlay TV」，輸入電視上的代碼。
+3. iPhone／iPad：「控制中心 → 螢幕鏡像輸出 → AirPlay & Remote Receiver」，輸入電視上的代碼。
 4. Mac：「控制中心 → 螢幕鏡像輸出」；需要延伸桌面時，到「系統設定 → 顯示器」
    選擇延伸模式，實際選項依 macOS 與接收相容性而定。
 
@@ -38,7 +38,7 @@ App 不會自行開啟偵錯或修改系統安全設定。也提供選用的系�
 
 ## 從兩個 App 升級
 
-使用相同簽署金鑰可更新 AirPlay TV 並保留其設定。原 Remote TV 屬於另一個 Android 沙箱，
+使用相同簽署金鑰可更新 AirPlay & Remote Receiver 並保留其設定。原 Remote TV 屬於另一個 Android 沙箱，
 配對資料及偵錯授權無法自動搬移；請先完成整合版配對與授權，驗證後再停止或移除獨立 Remote TV，
 避免重複接收器。名稱只需設定一次，兩個接收功能同步使用。
 
@@ -53,8 +53,8 @@ Android 8.0／API 26 以上；本版僅提供 ARM 32 位元 `armeabi-v7a`。
 使用 JDK 21、Rust 1.98.0、Android SDK 37.0、NDK 27.0.12077973、CMake 3.22.1，設定 `ANDROID_HOME`：
 
 ```sh
-git clone --recurse-submodules https://github.com/henry753951/airplay-tv.git
-cd airplay-tv
+git clone --recurse-submodules https://github.com/henry753951/airplay-remote-receiver.git
+cd airplay-remote-receiver
 rustup target add armv7-linux-androideabi
 scripts/build-remote.sh
 (cd remote && cargo test --locked -p atv-core)

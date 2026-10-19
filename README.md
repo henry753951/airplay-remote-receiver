@@ -1,15 +1,15 @@
-<img src="docs/assets/icon.svg" width="88" alt="AirPlay TV icon" />
+<img src="docs/assets/icon.svg" width="88" alt="AirPlay & Remote Receiver icon" />
 
-# AirPlay TV
+# AirPlay & Remote Receiver
 
 AirPlay and Apple TV Remote reception in one Android TV app. Mirror your iPhone,
 iPad or Mac, then navigate the TV with the built-in iPhone remote. Both receivers
 share a name, a restrained TV interface and one background-service lifecycle.
 
-[![Build](https://github.com/henry753951/airplay-tv/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-tv/actions/workflows/build.yml)
+[![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download](https://github.com/henry753951/airplay-tv/releases/latest)** ·
+**[Download](https://github.com/henry753951/airplay-remote-receiver/releases/latest)** ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 
 ## Features
@@ -35,10 +35,10 @@ device firmware and sender. DRM-protected video is not supported.
 
 ## Install and connect
 
-1. Install the signed APK from **Releases** and open **AirPlay TV** on the TV.
+1. Install the signed APK from **Releases** and open **AirPlay & Remote Receiver** on the TV.
 2. Allow the requested network/background permissions and review receiver settings.
 3. Keep PIN authentication enabled. On your iPhone or iPad, choose **Control Center →
-   Screen Mirroring → AirPlay TV**, then enter the code shown on the TV.
+   Screen Mirroring → AirPlay & Remote Receiver**, then enter the code shown on the TV.
 4. On Mac, use **Control Center → Screen Mirroring**. To extend the desktop, open
    **System Settings → Displays** and choose the extended-display mode if offered.
 
@@ -79,7 +79,7 @@ See [MediaFormat color keys](https://developer.android.com/reference/android/med
 
 ### Upgrading from separate apps
 
-The combined APK updates AirPlay TV when signed with the same key. Standalone
+The combined APK updates AirPlay & Remote Receiver when signed with the same key. Standalone
 Remote TV has a separate Android sandbox: it cannot automatically transfer keys,
 paired controllers or debugging trust. Pair and authorize the combined app, verify
 it, then stop/uninstall the standalone Remote TV receiver to avoid duplicate entries.
@@ -101,8 +101,8 @@ The project uses the checked-in Gradle wrapper and dependency catalog.
 Install the listed SDK components, set `ANDROID_HOME`, then:
 
 ```sh
-git clone --recurse-submodules https://github.com/henry753951/airplay-tv.git
-cd airplay-tv
+git clone --recurse-submodules https://github.com/henry753951/airplay-remote-receiver.git
+cd airplay-remote-receiver
 # Optional toolchain provisioning with mise: mise trust && mise install
 rustup target add armv7-linux-androideabi
 scripts/build-remote.sh

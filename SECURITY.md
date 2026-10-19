@@ -1,6 +1,6 @@
 # Security
 
-Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/henry753951/airplay-tv/security/advisories/new).
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/henry753951/airplay-remote-receiver/security/advisories/new).
 Include the affected version, attack prerequisites, reproduction steps and impact.
 Do not post credentials, pairing material or unredacted device logs in public issues.
 

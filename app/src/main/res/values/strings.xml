@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AirPlay TV</string>
+    <string name="app_name">AirPlay &amp; Remote Receiver</string>
     <string name="tv_status_ready">Ready for iPhone, iPad and Mac</string>
     <string name="tv_home">TV Home</string>
     <string name="tv_settings">Settings</string>

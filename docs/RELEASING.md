@@ -1,4 +1,4 @@
-# Releasing AirPlay TV
+# Releasing AirPlay & Remote Receiver
 
 1. Update the Android version name and version code. Run Rust protocol tests, Android unit tests and all CI checks.
    Build `scripts/build-remote.sh` before Gradle; include `remote/` and its MIT license

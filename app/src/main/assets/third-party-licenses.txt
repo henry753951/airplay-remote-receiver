@@ -675,7 +675,7 @@ Public License instead of this License.  But first, please read
 
 # Attribution
 
-AirPlay TV includes code from
+AirPlay & Remote Receiver includes code from
 [jqssun/android-airplay-server](https://github.com/jqssun/android-airplay-server)
 (commit `a46cca0a6a1274e9e33c0e750f0f1c1eb1d881ea`), licensed under GPL-3.0.
 Original source notices are retained; this distribution remains GPL-3.0.
