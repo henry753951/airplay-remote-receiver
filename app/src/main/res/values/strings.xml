@@ -10,11 +10,12 @@
     <string name="tv_save">Save</string>
     <string name="tv_cancel">Cancel</string>
     <string name="tv_pair_title">Enter Code</string>
-    <string name="tv_pair_hint">Type this code on your iPhone, iPad or Mac.</string>
+    <string name="tv_pair_hint">Type this code on your iPhone, iPad or Mac</string>
     <string name="tv_paired">Connected</string>
     <string name="tv_service_airplay">AirPlay</string>
     <string name="tv_service_remote">Remote</string>
     <string name="tv_state_ready">Ready</string>
+    <string name="tv_state_connecting">Connecting</string>
     <string name="tv_state_connected">Connected</string>
     <string name="tv_state_disconnected">Not connected</string>
     <string name="tv_state_starting">Starting</string>
@@ -87,7 +88,7 @@
     <!-- Overview -->
     <string name="server_stopped">Server stopped</string>
     <string name="waiting_for_connection">Waiting for connection...</string>
-    <string name="waiting_for_playback">Press start on the sender...</string>
+    <string name="waiting_for_playback">Waiting for playback…</string>
     <string name="error_starting_server">Error starting server</string>
     <string name="connected_count">%d connected</string>
     <string name="error_label">Error</string>
@@ -163,7 +164,7 @@
     <string name="setting_run_in_background_desc">Keep the server running after leaving the app</string>
 
     <!-- Settings: Connection -->
-    <string name="setting_require_pin">Require PIN (Beta)</string>
+    <string name="setting_require_pin">Require Code</string>
     <string name="setting_require_pin_desc">Require 4-digit PIN for each new connection</string>
     <string name="setting_allow_new_conn">Allow new connections</string>
     <string name="setting_allow_new_conn_desc">Drop current sender when a new one connects</string>

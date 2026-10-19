@@ -541,13 +541,13 @@ fun MainScreen(
                 viewModel, tvPage, onPage = { tvPage = it },
                 idle = !mirroringActive && !audioOnly,
                 onLocalNetwork = onLocalNetwork
-            ) { onSettings ->
+            ) { onSettings, focusSettings ->
                 Box(Modifier.fillMaxSize().padding(32.dp)) {
                     OverviewContent(
                         viewModel, video,
                         onFullscreen = { fullscreen = true }, onPip = onPip, onLocalNetwork = onLocalNetwork,
                         showAudioMode = audioOnly,
-                        onSettings = onSettings
+                        onSettings = onSettings, focusSettings = focusSettings
                     )
                 }
             }
@@ -636,7 +636,8 @@ private fun OverviewContent(
     onPip: () -> Unit,
     onLocalNetwork: () -> Unit,
     showAudioMode: Boolean = false,
-    onSettings: (() -> Unit)? = null
+    onSettings: (() -> Unit)? = null,
+    focusSettings: Boolean = false
 ) {
     val state by viewModel.serverState.collectAsState()
     val localNetwork by viewModel.localNetwork.collectAsState()
@@ -651,8 +652,9 @@ private fun OverviewContent(
     val debugInfo by viewModel.debugInfo.collectAsState()
     val tv = isTv()
     val startFocus = remember { FocusRequester() }
+    val settingsFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        if (tv) startFocus.requestFocus()
+        if (tv) (if (focusSettings && onSettings != null) settingsFocus else startFocus).requestFocusUntilLanded()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -723,7 +725,7 @@ private fun OverviewContent(
                             }
                         }
                         if (onSettings != null) {
-                            IconButton(onClick = onSettings, modifier = Modifier.dpadFocus(CircleShape)) {
+                            IconButton(onClick = onSettings, modifier = Modifier.focusRequester(settingsFocus).dpadFocus(CircleShape)) {
                                 Icon(
                                     Icons.Default.Settings, contentDescription = stringResource(R.string.tv_settings),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)

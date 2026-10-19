@@ -99,7 +99,7 @@ internal fun TvRouter(
     onPage: (TvPage) -> Unit,
     idle: Boolean,
     onLocalNetwork: () -> Unit,
-    overview: @Composable (onSettings: () -> Unit) -> Unit
+    overview: @Composable (onSettings: () -> Unit, focusSettings: Boolean) -> Unit
 ) {
     // focused row per page, so Back lands where the user left
     val focusMemory = remember { mutableStateMapOf<TvPage, Int>() }
@@ -115,7 +115,7 @@ internal fun TvRouter(
                 TvIdleScreen(viewModel, onLocalNetwork, onSettings = { go(TvPage.SETTINGS) },
                     focusSettings = cameFrom == TvPage.SETTINGS)
             } else {
-                overview { go(TvPage.SETTINGS) }
+                overview({ go(TvPage.SETTINGS) }, cameFrom == TvPage.SETTINGS)
             }
             TvPage.SETTINGS -> TvRootSettings(viewModel, memo(page), saveFocus(page), back, go)
             TvPage.GENERAL, TvPage.VIDEO, TvPage.AUDIO, TvPage.REMOTE, TvPage.POWER, TvPage.DIAGNOSTICS ->
@@ -174,12 +174,16 @@ private fun airPlayStatus(viewModel: MainViewModel): TvStatus {
     val state by viewModel.serverState.collectAsState()
     val localNetwork by viewModel.localNetwork.collectAsState()
     val connections by viewModel.connectionCount.collectAsState()
+    val mirroring by viewModel.mirroringActive.collectAsState()
+    val audio by viewModel.audioOnly.collectAsState()
+    val video by viewModel.videoPlaybackActive.collectAsState()
     return when {
         state != ServerState.RUNNING && localNetwork != LocalNetworkAccess.GRANTED ->
             TvStatus(TvHealth.ERROR, R.string.tv_state_needs_permission)
         state == ServerState.ERROR -> TvStatus(TvHealth.ERROR, R.string.tv_state_error)
         state == ServerState.STOPPED -> TvStatus(TvHealth.OFF, R.string.tv_state_stopped)
-        connections > 0 -> TvStatus(TvHealth.READY, R.string.tv_state_connected)
+        connections > 0 && (mirroring || audio || video) -> TvStatus(TvHealth.READY, R.string.tv_state_connected)
+        connections > 0 -> TvStatus(TvHealth.BUSY, R.string.tv_state_connecting)
         else -> TvStatus(TvHealth.READY, R.string.tv_state_ready)
     }
 }
