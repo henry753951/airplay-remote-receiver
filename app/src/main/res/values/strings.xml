@@ -315,4 +315,5 @@
     <string name="debug_clients">Senders: %1$d</string>
     <string name="remote_accessibility_label">Remote control</string>
     <string name="accessibility_service_description">Allows paired Apple TV Remote controllers to navigate the TV.</string>
+    <string name="btn_disconnect">Disconnect</string>
 </resources>

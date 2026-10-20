@@ -112,12 +112,14 @@ fun SettingsScreen(viewModel: MainViewModel) {
             onCheckedChange = { viewModel.set(Prefs.BOOT_AUTO_START, it) }
         )
 
-        SettingSwitch(
-            title = stringResource(R.string.setting_run_in_background),
-            description = stringResource(R.string.setting_run_in_background_desc),
-            checked = runInBackground,
-            onCheckedChange = { viewModel.set(Prefs.RUN_IN_BACKGROUND, it) }
-        )
+        if (!isTv()) {
+            SettingSwitch(
+                title = stringResource(R.string.setting_run_in_background),
+                description = stringResource(R.string.setting_run_in_background_desc),
+                checked = runInBackground,
+                onCheckedChange = { viewModel.set(Prefs.RUN_IN_BACKGROUND, it) }
+            )
+        }
 
         SectionHeader(stringResource(R.string.section_connection))
 

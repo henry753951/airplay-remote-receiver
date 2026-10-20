@@ -137,6 +137,7 @@ internal fun TvRouter(
                     covered = covered
                 )
             } else {
+                BackHandler { viewModel.disconnectSession() }
                 overview({ go(TvPage.SETTINGS) }, cameFrom == TvPage.SETTINGS)
             }
             TvPage.CAST_GUIDE -> TvCastGuide(viewModel, back, go)
@@ -285,8 +286,9 @@ internal fun TvIdleScreen(
     }
     val attention = pending?.takeIf { it.title == settled }
 
-    // Back leaves for the TV home without closing the receiver, like the system's own sources
+    // End any pending cast before returning to the TV home; discovery stays available.
     BackHandler {
+        viewModel.disconnectSession()
         activity?.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
@@ -1031,7 +1033,6 @@ private fun remoteItems(viewModel: MainViewModel): List<TvItem> {
 private fun powerItems(viewModel: MainViewModel): List<TvItem> {
     val standby by viewModel.pref(Prefs.STANDBY_REACHABLE).collectAsState()
     return listOf(
-    toggle(viewModel, Prefs.RUN_IN_BACKGROUND, R.string.setting_run_in_background, R.string.setting_run_in_background_desc),
     toggle(viewModel, Prefs.BOOT_AUTO_START, R.string.setting_boot_auto_start, R.string.setting_boot_auto_start_desc),
     TvItem(
         stringResource(R.string.tv_power_mode), stringResource(R.string.tv_power_mode_desc),
@@ -1420,9 +1421,10 @@ internal fun rememberTvCastStage(connected: Boolean, streaming: Boolean, pinShow
 }
 
 @Composable
-internal fun TvCastStageLayer(stage: TvCastStage) {
+internal fun TvCastStageLayer(stage: TvCastStage, onDisconnect: () -> Unit) {
     if (!stage.visible) return
     BackHandler(enabled = !stage.settling) {
+        onDisconnect()
         stage.visible = false
         stage.revealing = false
     }

@@ -273,6 +273,10 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
         service?.startServer()
     }
 
+    fun disconnectSession() {
+        service?.disconnectSession()
+    }
+
     fun stopServer() {
         service?.stopServer()
     }

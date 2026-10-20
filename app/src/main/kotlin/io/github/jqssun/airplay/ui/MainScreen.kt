@@ -102,6 +102,7 @@ fun MainScreen(
     onPip: () -> Unit = {},
     onLocalNetwork: () -> Unit = {}
 ) {
+    val tvDevice = isTv()
     var tab by remember { mutableStateOf(Tab.OVERVIEW) }
     var fullscreen by remember { mutableStateOf(false) }
     val pin by viewModel.pinCode.collectAsState()
@@ -507,7 +508,7 @@ fun MainScreen(
                 onDismiss = { showSpeedSelector = false }
             )
         }
-        castStage?.let { TvCastStageLayer(it) }
+        castStage?.let { TvCastStageLayer(it, viewModel::disconnectSession) }
         if (isTv()) tvPins()
         return
     }
@@ -537,11 +538,17 @@ fun MainScreen(
     }
 
     if (fullscreen) {
-        BackHandler { fullscreen = false }
+        BackHandler {
+            if (tvDevice) viewModel.disconnectSession()
+            fullscreen = false
+        }
         FullscreenVideo(
             viewModel = viewModel,
             video = video,
-            onExitFullscreen = { fullscreen = false },
+            onExitFullscreen = {
+                if (tvDevice) viewModel.disconnectSession()
+                fullscreen = false
+            },
             onPip = onPip
         )
     } else if (isTv()) {
@@ -596,7 +603,7 @@ fun MainScreen(
         }
     }
 
-    castStage?.let { TvCastStageLayer(it) }
+    castStage?.let { TvCastStageLayer(it, viewModel::disconnectSession) }
 
     // pin dialog
     if (isTv()) {
@@ -818,7 +825,7 @@ private fun OverviewContent(
                             if (settings) R.string.btn_open_settings else R.string.btn_allow,
                             onLocalNetwork
                         )
-                        state == ServerState.RUNNING -> Triple(Icons.Default.Stop, R.string.btn_stop, viewModel::stopServer)
+                        state == ServerState.RUNNING -> Triple(Icons.Default.Stop, R.string.btn_disconnect, viewModel::disconnectSession)
                         else -> Triple(Icons.Default.PlayArrow, R.string.btn_start, viewModel::startServer)
                     }
                     FilledTonalButton(

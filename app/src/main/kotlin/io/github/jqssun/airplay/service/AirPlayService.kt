@@ -533,6 +533,12 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         } else updatePowerPolicy()
     }
 
+    fun disconnectSession() {
+        if (nativeHandle != 0L) NativeBridge.nativeDisconnect(nativeHandle)
+        _endVideoPlayback("AirPlay session ended locally")
+        clearPin()
+    }
+
     fun stopServer() {
         remote.stop()
         _shutdown()
@@ -624,7 +630,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         airPlayVideoPlayer.seekBy(deltaMs)
     }
 
-    fun stopVideoPlayback() = _endVideoPlayback("AirPlay Video stopped (local)")
+    fun stopVideoPlayback() = disconnectSession()
 
     fun downloadVideo() {
         _videoLocation.value?.let { videoDownloader.start(it) }
@@ -912,7 +918,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             videoRenderer.stopSession()
             _mirroringActive.value = false
         }
-        _setAudioOnly(!running)
+        _setAudioOnly(!running && _connectionCount.value > 0)
     }
 
     private fun _setAudioOnly(audioOnly: Boolean) {

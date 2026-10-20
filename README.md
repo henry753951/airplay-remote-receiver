@@ -40,6 +40,8 @@ On Mac, choose the TV in **Control Center → Screen Mirroring**. For an extende
 desktop, open **System Settings → Displays** and select the extended-display mode
 if available.
 
+On TV, choose **Disconnect**, press **Back** during casting, or return to the TV home to end the current cast. AirPlay discovery and the enabled remote receiver remain available for your next connection.
+
 ### Use iPhone as a remote
 
 Open **Control Center → Apple TV Remote**, choose your TV and enter its pairing code.

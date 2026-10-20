@@ -193,7 +193,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && _shouldAutoPip()) enterPip()
+        if (isTvDevice()) viewModel.disconnectSession()
+        else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && _shouldAutoPip()) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
@@ -204,7 +205,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         // never stop mid-session
-        if (!viewModel.pref(Prefs.RUN_IN_BACKGROUND).value && !isChangingConfigurations &&
+        if (!isTvDevice() && !viewModel.pref(Prefs.RUN_IN_BACKGROUND).value && !isChangingConfigurations &&
             viewModel.connectionCount.value == 0 &&
             !com.corvofeng.fakeatv.RemoteState.connected.value) {
             viewModel.stopServer()

@@ -283,4 +283,5 @@
     <string name="debug_clients">傳送裝置：%1$d</string>
     <string name="remote_accessibility_label">遙控器控制</string>
     <string name="accessibility_service_description">讓已配對的 Apple TV 遙控器操作電視。</string>
+    <string name="btn_disconnect">中斷投放</string>
 </resources>
