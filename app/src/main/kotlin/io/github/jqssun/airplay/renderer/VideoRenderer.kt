@@ -282,7 +282,7 @@ class VideoRenderer(ctx: Context) {
                     value(MediaFormat.KEY_COLOR_TRANSFER), value(MediaFormat.KEY_COLOR_FORMAT)
                 )
                 colorInfo = listOf(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.KEY_COLOR_RANGE,
-                    MediaFormat.KEY_COLOR_TRANSFER).joinToString { "$it=${if (f.containsKey(it)) f.getInteger(it) else 0}" }
+                    MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.KEY_COLOR_FORMAT).joinToString { "$it=${if (f.containsKey(it)) f.getInteger(it) else 0}" }
                 Log.i(TAG, "Decoder output: $colorInfo")
                 benchmarkLogCallback?.invoke("Decoder output: $colorInfo")
                 continue

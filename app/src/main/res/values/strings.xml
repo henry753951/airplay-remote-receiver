@@ -2,6 +2,13 @@
 <resources>
     <string name="app_name">AirPlay &amp; Remote Receiver</string>
     <string name="tv_settings">Settings</string>
+    <string name="tv_now_playing">Now Playing</string>
+    <string name="tv_cd_previous">Previous</string>
+    <string name="tv_cd_next">Next</string>
+    <string name="tv_more_info">More Info</string>
+    <string name="tv_got_it">OK</string>
+    <string name="tv_remote_dpad_short">How to use directional buttons on iPhone. Press OK to read more.</string>
+    <string name="tv_power_mode_short">Choose whether this TV keeps receiving while in standby. Press OK to compare the two modes.</string>
     <string name="tv_cat_video_desc">Resolution, frame rate, color range and grayscale reference.</string>
     <string name="tv_cat_audio_desc">Volume sync, audio delay and buffering.</string>
     <string name="tv_cat_power_desc">Background receiving, start at power on and standby mode.</string>
@@ -316,4 +323,5 @@
     <string name="remote_accessibility_label">Remote control</string>
     <string name="accessibility_service_description">Allows paired Apple TV Remote controllers to navigate the TV.</string>
     <string name="btn_disconnect">Disconnect</string>
+    <string name="tv_scroll_hint">Use Up and Down to scroll.</string>
 </resources>

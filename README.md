@@ -8,7 +8,7 @@ with the Apple TV Remote in iPhone Control Center.
 [![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download APK · v0.2.0-rc5](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc5)** ·
+**[Download APK · v0.2.0-rc6](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc6)** ·
 [All releases](https://github.com/henry753951/airplay-remote-receiver/releases) ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 

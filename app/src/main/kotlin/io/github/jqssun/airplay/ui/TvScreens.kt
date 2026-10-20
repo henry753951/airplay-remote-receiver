@@ -7,6 +7,16 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -16,6 +26,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -36,12 +48,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -77,14 +95,20 @@ import androidx.compose.foundation.Canvas
 // TV receiver look: near-black greys, white type, one white highlight for focus
 internal val TvBg = Color(0xFF0E0E10)
 internal val TvText = Color(0xFFF5F5F7)
-private val TvMuted = Color(0xFF9C9CA3)
-private val TvTile = Color(0xFF1D1D20)
-private val TvInk = Color(0xFF111113)
+internal val TvMuted = Color(0xFF9C9CA3)
+internal val TvTile = Color(0xFF1D1D20)
+internal val TvInk = Color(0xFF111113)
 private val TvError = Color(0xFFFF7A6E)
 private val TvBackdrop = Brush.verticalGradient(listOf(Color(0xFF1B1B1E), TvBg))
 
 // short and quick: motion confirms a key press, it never stands in for one
-private const val FOCUS_MS = 110
+internal const val FOCUS_MS = 110
+
+// one page frame for home, guides and settings, so nothing jumps sideways between levels
+private val TV_EDGE_START = 80.dp
+private val TV_EDGE_END = 64.dp
+private const val TV_ART_WEIGHT = 0.44f
+private val TV_ART_SIZE = 340.dp
 
 // every page knows where Back goes; parents are declared before children
 internal enum class TvPage(val parent: TvPage?) {
@@ -111,49 +135,72 @@ internal fun TvRouter(
     // pages reached from elsewhere (remote settings from the remote guide) go back the way they came
     val trail = remember { mutableStateListOf<TvPage>() }
     var cameFrom by remember { mutableStateOf<TvPage?>(null) }
+    // deeper pages arrive from the right, Back returns from the left
+    var forward by remember { mutableStateOf(true) }
     val go: (TvPage) -> Unit = {
         trail.add(page)
         cameFrom = page
+        forward = true
         onPage(it)
     }
     val back: () -> Unit = {
         val to = trail.removeLastOrNull() ?: page.parent
         if (to != null) {
             cameFrom = page
+            forward = false
             onPage(to)
         }
     }
     val memo = { p: TvPage -> focusMemory[p] ?: 0 }
     val saveFocus = { p: TvPage -> { i: Int -> focusMemory[p] = i } }
 
-    key(page) {
-        when (page) {
-            TvPage.HOME -> if (idle) {
-                // home is the root: nothing to go back to past here
-                LaunchedEffect(Unit) { trail.clear() }
-                TvIdleScreen(
-                    viewModel, onLocalNetwork, go,
-                    focusIndex = focusMemory[TvPage.HOME], onFocusIndex = saveFocus(TvPage.HOME),
-                    covered = covered
+    // a short slide and fade between levels: enough to show where the viewer went, never long
+    // enough to hold up the next key press
+    AnimatedContent(
+        targetState = page,
+        transitionSpec = {
+            val dir = if (forward) 1 else -1
+            (fadeIn(tween(220, delayMillis = 70)) +
+                slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { w -> dir * w / 14 })
+                .togetherWith(
+                    fadeOut(tween(150)) +
+                        slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { w -> -dir * w / 24 }
                 )
-            } else {
-                BackHandler { viewModel.disconnectSession() }
-                overview({ go(TvPage.SETTINGS) }, cameFrom == TvPage.SETTINGS)
+        },
+        label = "page"
+    ) { target ->
+        // Exiting pages remain composed for the animation but must not accept focus or keys.
+        Box(Modifier.fillMaxSize().focusProperties {
+            onEnter = { if (target != page) cancelFocusChange() }
+        }.focusGroup().onPreviewKeyEvent { target != page }) {
+            when (target) {
+                TvPage.HOME -> if (idle) {
+                    // home is the root: nothing to go back to past here
+                    LaunchedEffect(Unit) { trail.clear() }
+                    TvIdleScreen(
+                        viewModel, onLocalNetwork, go,
+                        focusIndex = focusMemory[TvPage.HOME], onFocusIndex = saveFocus(TvPage.HOME),
+                        covered = covered
+                    )
+                } else {
+                    BackHandler { viewModel.disconnectSession() }
+                    overview({ go(TvPage.SETTINGS) }, cameFrom == TvPage.SETTINGS)
+                }
+                TvPage.CAST_GUIDE -> TvCastGuide(viewModel, back, go)
+                TvPage.REMOTE_GUIDE -> TvRemoteGuide(viewModel, back, go)
+                TvPage.SETTINGS -> TvRootSettings(viewModel, memo(target), saveFocus(target), back, go)
+                TvPage.GENERAL, TvPage.VIDEO, TvPage.AUDIO, TvPage.REMOTE, TvPage.POWER, TvPage.DIAGNOSTICS ->
+                    TvCategory(viewModel, target, memo(target), saveFocus(target), back, go)
+                TvPage.GRAYSCALE -> TvGrayscaleScreen(back)
+                TvPage.ADVANCED -> TvSubPage(stringResource(R.string.tv_advanced), back) { SettingsScreen(viewModel) }
+                TvPage.LOGS -> TvSubPage(stringResource(R.string.tab_logs), back) { LogsScreen(viewModel) }
             }
-            TvPage.CAST_GUIDE -> TvCastGuide(viewModel, back, go)
-            TvPage.REMOTE_GUIDE -> TvRemoteGuide(viewModel, back, go)
-            TvPage.SETTINGS -> TvRootSettings(viewModel, memo(page), saveFocus(page), back, go)
-            TvPage.GENERAL, TvPage.VIDEO, TvPage.AUDIO, TvPage.REMOTE, TvPage.POWER, TvPage.DIAGNOSTICS ->
-                TvCategory(viewModel, page, memo(page), saveFocus(page), back, go)
-            TvPage.GRAYSCALE -> TvGrayscaleScreen(back)
-            TvPage.ADVANCED -> TvSubPage(stringResource(R.string.tv_advanced), back) { SettingsScreen(viewModel) }
-            TvPage.LOGS -> TvSubPage(stringResource(R.string.tab_logs), back) { LogsScreen(viewModel) }
         }
     }
 }
 
 @Composable
-private fun AirPlayMark(height: Dp, tint: Color) {
+internal fun AirPlayMark(height: Dp, tint: Color) {
     // drawable is 96x80
     Icon(painterResource(R.drawable.airplay_mark), null, Modifier.size(height * 1.2f, height), tint = tint)
 }
@@ -324,15 +371,15 @@ internal fun TvIdleScreen(
         Modifier
             .fillMaxSize()
             .background(TvBackdrop)
-            .padding(start = 80.dp, end = 64.dp)
+            .padding(start = TV_EDGE_START, end = TV_EDGE_END)
             .graphicsLayer { alpha = reveal.value }
     ) {
         Column(
             Modifier
-                .weight(0.5f)
+                .weight(1f - TV_ART_WEIGHT)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 72.dp, bottom = 48.dp, end = 32.dp)
+                .padding(top = 64.dp, bottom = 48.dp, end = 40.dp)
                 .graphicsLayer { translationY = (1f - reveal.value) * 12.dp.toPx() }
         ) {
             Text(
@@ -389,12 +436,32 @@ internal fun TvIdleScreen(
             }
         }
         // the right half answers "what is this?" for the focused entry, with a picture, not words
-        Box(Modifier.weight(0.5f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-            Crossfade(targetState = focused, animationSpec = tween(220), label = "art") { entry ->
-                when (entry) {
-                    TvHomeEntry.CAST -> TvCastArt()
-                    TvHomeEntry.REMOTE -> TvRemoteArt(remoteEnabled)
-                    TvHomeEntry.SETTINGS -> TvSettingsArt()
+        Box(Modifier.weight(TV_ART_WEIGHT).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            // every picture sits in the same fixed, centred frame, so switching never shifts anything;
+            // the new one rises from the direction the focus moved
+            AnimatedContent(
+                targetState = focused,
+                modifier = Modifier.size(TV_ART_SIZE),
+                contentAlignment = Alignment.Center,
+                transitionSpec = {
+                    val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                    (fadeIn(tween(240, delayMillis = 60)) +
+                        scaleIn(tween(340, easing = FastOutSlowInEasing), initialScale = 0.94f) +
+                        slideInVertically(tween(340, easing = FastOutSlowInEasing)) { h -> dir * h / 12 })
+                        .togetherWith(
+                            fadeOut(tween(140)) +
+                                slideOutVertically(tween(240, easing = FastOutSlowInEasing)) { h -> -dir * h / 16 }
+                        )
+                        .using(SizeTransform(clip = false))
+                },
+                label = "art"
+            ) { entry ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    when (entry) {
+                        TvHomeEntry.CAST -> TvCastArt()
+                        TvHomeEntry.REMOTE -> TvRemoteArt(remoteEnabled)
+                        TvHomeEntry.SETTINGS -> TvSettingsArt()
+                    }
                 }
             }
         }
@@ -472,7 +539,7 @@ private fun TvAttentionCard(attention: TvAttention, actionModifier: Modifier) {
 
 @Composable
 private fun TvCastArt() {
-    Box(Modifier.size(360.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(TV_ART_SIZE), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val c = center
             val w = 1.5.dp.toPx()
@@ -487,7 +554,7 @@ private fun TvCastArt() {
 @Composable
 private fun TvRemoteArt(enabled: Boolean) {
     val tint = TvText.copy(alpha = if (enabled) 0.85f else 0.35f)
-    Canvas(Modifier.size(width = 150.dp, height = 360.dp)) {
+    Canvas(Modifier.size(width = 134.dp, height = 320.dp)) {
         val w = 2.dp.toPx()
         val body = androidx.compose.ui.geometry.Size(size.width - w, size.height - w)
         drawRoundRect(
@@ -509,7 +576,7 @@ private fun TvRemoteArt(enabled: Boolean) {
 
 @Composable
 private fun TvSettingsArt() {
-    Canvas(Modifier.size(width = 300.dp, height = 220.dp)) {
+    Canvas(Modifier.size(width = 280.dp, height = 210.dp)) {
         val w = 2.dp.toPx()
         listOf(0.2f to 0.68f, 0.5f to 0.32f, 0.8f to 0.55f).forEach { track ->
             val cy = size.height * track.first
@@ -534,22 +601,25 @@ private fun TvGuidePage(
 ) {
     BackHandler(onBack = onBack)
     val first = remember { FocusRequester() }
+    var reading by remember { mutableStateOf(false) }
+    // the fine print lives one level down, so the page itself always fits the screen
+    val allActions = if (note != null) actions + (stringResource(R.string.tv_more_info) to { reading = true }) else actions
     // keyed on the count: turning the remote on removes the focused button, so land on the new first one
-    LaunchedEffect(actions.size) { if (actions.isNotEmpty()) first.requestFocusUntilLanded() }
-    Row(Modifier.fillMaxSize().background(TvBackdrop).padding(start = 80.dp, end = 64.dp)) {
+    LaunchedEffect(allActions.size) { if (allActions.isNotEmpty()) first.requestFocusUntilLanded() }
+    Row(Modifier.fillMaxSize().background(TvBackdrop).padding(start = TV_EDGE_START, end = TV_EDGE_END)) {
         Column(
             Modifier
-                .weight(0.56f)
+                .weight(1f - TV_ART_WEIGHT)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 72.dp, bottom = 48.dp, end = 40.dp)
+                .padding(top = 64.dp, bottom = 48.dp, end = 40.dp)
         ) {
             Text(title, color = TvText, fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.Light)
             Spacer(Modifier.height(12.dp))
             Text(lead, color = TvMuted, fontSize = 18.sp, lineHeight = 27.sp)
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(28.dp))
             steps.forEachIndexed { i, step ->
-                Row(Modifier.padding(bottom = 18.dp)) {
+                Row(Modifier.padding(bottom = 16.dp)) {
                     Box(
                         Modifier.size(30.dp).clip(CircleShape).border(1.5.dp, TvText.copy(alpha = 0.5f), CircleShape),
                         contentAlignment = Alignment.Center
@@ -560,21 +630,23 @@ private fun TvGuidePage(
                     Text(step, color = TvText, fontSize = 19.sp, lineHeight = 28.sp, modifier = Modifier.padding(top = 1.dp))
                 }
             }
-            if (note != null) {
-                Spacer(Modifier.height(6.dp))
-                Text(note, color = TvMuted, fontSize = 16.sp, lineHeight = 24.sp)
-            }
-            if (actions.isNotEmpty()) {
-                Spacer(Modifier.height(30.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    actions.forEachIndexed { i, action ->
+            if (allActions.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    allActions.forEachIndexed { i, action ->
                         TvPill(action.first, action.second, if (i == 0) Modifier.focusRequester(first) else Modifier)
                     }
                 }
             }
         }
-        Box(Modifier.weight(0.44f).fillMaxHeight(), contentAlignment = Alignment.Center) { art() }
+        Box(Modifier.weight(TV_ART_WEIGHT).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(TV_ART_SIZE), contentAlignment = Alignment.Center) { art() }
+        }
     }
+    if (reading && note != null) TvInfoDialog(title, note) { reading = false }
 }
 
 @Composable
@@ -633,7 +705,9 @@ internal class TvItem(
     val choices: List<Pair<String, String>>? = null,
     val selected: String? = null,
     val onPick: ((String) -> Unit)? = null,
-    val onClick: (() -> Unit)? = null
+    val onClick: (() -> Unit)? = null,
+    // longer explanation shown one level down (in the chooser, or on OK for an info row)
+    val detail: String? = null
 )
 
 @Composable
@@ -647,23 +721,33 @@ private fun TvSettingsList(
 ) {
     BackHandler(onBack = onBack)
     var choosing by remember { mutableStateOf<TvItem?>(null) }
+    var reading by remember { mutableStateOf<TvItem?>(null) }
     val requesters = remember(items.size) { List(items.size) { FocusRequester() } }
     val current = focusIndex.coerceIn(0, items.lastIndex)
     LaunchedEffect(Unit) { requesters[current].requestFocusUntilLanded() }
 
-    Row(Modifier.fillMaxSize().background(TvBackdrop).padding(start = 64.dp, end = 56.dp)) {
-        Column(Modifier.weight(0.4f).fillMaxHeight().padding(top = 56.dp, bottom = 56.dp, end = 48.dp)) {
+    Row(Modifier.fillMaxSize().background(TvBackdrop).padding(start = TV_EDGE_START, end = TV_EDGE_END)) {
+        Column(Modifier.weight(0.4f).fillMaxHeight().padding(top = 64.dp, bottom = 56.dp, end = 48.dp)) {
             AirPlayMark(28.dp, TvMuted)
             Spacer(Modifier.height(18.dp))
             if (crumb != null) {
-                Text(crumb, color = TvMuted, fontSize = 16.sp)
+                Text(crumb, color = TvMuted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
             }
-            Text(title, color = TvText, fontSize = 32.sp, fontWeight = FontWeight.Light)
-            Spacer(Modifier.weight(1f))
-            // the focused row explains itself here, so rows never change height
-            Crossfade(targetState = current, animationSpec = tween(140), label = "desc") { i ->
-                Text(items[i].description, color = TvMuted, fontSize = 17.sp, lineHeight = 26.sp)
+            Text(
+                title, color = TvText, fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.Light,
+                maxLines = 2, overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(24.dp))
+            // the focused row explains itself here, so rows never change height; the area is bounded,
+            // and anything longer belongs in the row's detail one level down
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.BottomStart) {
+                Crossfade(targetState = current, animationSpec = tween(140), label = "desc") { i ->
+                    Text(
+                        items[i].description, color = TvMuted, fontSize = 17.sp, lineHeight = 26.sp,
+                        maxLines = 8, overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
         Column(
@@ -677,6 +761,7 @@ private fun TvSettingsList(
             items.forEachIndexed { i, item ->
                 val click = when {
                     item.choices != null -> ({ choosing = item })
+                    item.onClick == null && item.detail != null -> ({ reading = item })
                     else -> item.onClick
                 }
                 TvSettingRow(item, click, Modifier.focusRequester(requesters[i])) { onFocusIndex(i) }
@@ -684,9 +769,11 @@ private fun TvSettingsList(
         }
     }
 
+    reading?.let { item -> TvInfoDialog(item.title, item.detail.orEmpty()) { reading = null } }
     choosing?.let { item ->
         TvChoiceDialog(
             title = item.title,
+            detail = item.detail,
             options = item.choices.orEmpty(),
             selected = item.selected,
             onPick = { key ->
@@ -740,7 +827,7 @@ private fun TvSettingRow(item: TvItem, onClick: (() -> Unit)?, modifier: Modifie
                 Spacer(Modifier.width(20.dp))
                 TvSwitch(item.checked, focused)
             }
-            item.link || item.choices != null -> {
+            item.link || item.choices != null || (item.detail != null && onClick != null) -> {
                 Spacer(Modifier.width(14.dp))
                 Text("›", color = sub, fontSize = 22.sp)
             }
@@ -768,13 +855,58 @@ private fun TvSwitch(checked: Boolean, onLightRow: Boolean) {
 }
 
 @Composable
+private fun TvInfoDialog(title: String, text: String, onDismiss: () -> Unit) {
+    val ok = remember { FocusRequester() }
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { ok.requestFocusUntilLanded() }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .widthIn(min = 460.dp, max = 620.dp)
+                .heightIn(max = 460.dp)
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) false else when (event.key) {
+                        Key.DirectionUp, Key.DirectionDown -> {
+                            val direction = if (event.key == Key.DirectionDown) 1 else -1
+                            scope.launch { scroll.animateScrollBy(direction * scroll.viewportSize * 0.6f) }
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                .clip(RoundedCornerShape(24.dp))
+                .background(TvTile)
+                .padding(32.dp)
+        ) {
+            Text(title, color = TvText, fontSize = 24.sp, fontWeight = FontWeight.Light, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text, color = TvMuted, fontSize = 17.sp, lineHeight = 26.sp,
+                modifier = Modifier.weight(1f, fill = false).verticalScroll(scroll)
+            )
+            if (scroll.maxValue > 0) {
+                Spacer(Modifier.height(12.dp))
+                Text(stringResource(R.string.tv_scroll_hint), color = TvMuted, fontSize = 14.sp)
+            }
+            Spacer(Modifier.height(24.dp))
+            TvPill(stringResource(R.string.tv_got_it), onDismiss, Modifier.align(Alignment.End).focusRequester(ok))
+        }
+    }
+}
+
+@Composable
 private fun TvChoiceDialog(
     title: String,
+    detail: String? = null,
     options: List<Pair<String, String>>,
     selected: String?,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var reading by remember { mutableStateOf(false) }
+    val more = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     val requesters = remember(options.size) { List(options.size) { FocusRequester() } }
     val start = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
     LaunchedEffect(Unit) { if (requesters.isNotEmpty()) requesters[start].requestFocusUntilLanded() }
@@ -782,16 +914,22 @@ private fun TvChoiceDialog(
         Column(
             Modifier
                 .widthIn(min = 420.dp, max = 560.dp)
+                .heightIn(max = 460.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(TvTile)
                 .padding(horizontal = 16.dp, vertical = 24.dp)
         ) {
             Text(
                 title, color = TvText, fontSize = 22.sp, fontWeight = FontWeight.Light,
-                modifier = Modifier.padding(start = 24.dp, bottom = 12.dp)
+                modifier = Modifier.padding(start = 24.dp, bottom = 12.dp),
+                maxLines = 2, overflow = TextOverflow.Ellipsis
             )
+            if (detail != null) {
+                TvPill(stringResource(R.string.tv_more_info), { reading = true }, Modifier.focusRequester(more))
+                Spacer(Modifier.height(12.dp))
+            }
             Column(
-                Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 options.forEachIndexed { i, option ->
@@ -804,6 +942,10 @@ private fun TvChoiceDialog(
                 }
             }
         }
+    }
+    if (reading && detail != null) TvInfoDialog(title, detail) {
+        reading = false
+        scope.launch { more.requestFocusUntilLanded() }
     }
 }
 
@@ -1025,7 +1167,10 @@ private fun remoteItems(viewModel: MainViewModel): List<TvItem> {
             stringResource(R.string.tv_remote_adb), stringResource(R.string.tv_remote_adb_desc),
             value = stringResource(if (adb) R.string.tv_state_ready else R.string.tv_state_not_ready)
         ),
-        TvItem(stringResource(R.string.tv_remote_dpad), stringResource(R.string.tv_remote_dpad_desc)),
+        TvItem(
+            stringResource(R.string.tv_remote_dpad), stringResource(R.string.tv_remote_dpad_short),
+            detail = stringResource(R.string.tv_remote_dpad_desc)
+        ),
     )
 }
 
@@ -1035,7 +1180,8 @@ private fun powerItems(viewModel: MainViewModel): List<TvItem> {
     return listOf(
     toggle(viewModel, Prefs.BOOT_AUTO_START, R.string.setting_boot_auto_start, R.string.setting_boot_auto_start_desc),
     TvItem(
-        stringResource(R.string.tv_power_mode), stringResource(R.string.tv_power_mode_desc),
+        stringResource(R.string.tv_power_mode), stringResource(R.string.tv_power_mode_short),
+        detail = stringResource(R.string.tv_power_mode_desc),
         choices = listOf(
             Prefs.ON to stringResource(R.string.tv_power_standby),
             Prefs.OFF to stringResource(R.string.tv_power_saving),

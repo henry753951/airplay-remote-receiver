@@ -2,6 +2,13 @@
 <resources>
     <string name="app_name">AirPlay &amp; Remote Receiver</string>
     <string name="tv_settings">設定</string>
+    <string name="tv_now_playing">正在播放</string>
+    <string name="tv_cd_previous">上一首</string>
+    <string name="tv_cd_next">下一首</string>
+    <string name="tv_more_info">更多說明</string>
+    <string name="tv_got_it">知道了</string>
+    <string name="tv_remote_dpad_short">如何在 iPhone 上使用方向按鈕。按 OK 查看說明。</string>
+    <string name="tv_power_mode_short">選擇電視待機時是否繼續接收投放。按 OK 比較兩種模式。</string>
     <string name="tv_cat_video_desc">解析度、每秒畫面數、色彩範圍與灰階對照。</string>
     <string name="tv_cat_audio_desc">音量同步、聲音延遲與音訊緩衝。</string>
     <string name="tv_cat_power_desc">背景接收、開機啟動與待機模式。</string>
@@ -284,4 +291,5 @@
     <string name="remote_accessibility_label">遙控器控制</string>
     <string name="accessibility_service_description">讓已配對的 Apple TV 遙控器操作電視。</string>
     <string name="btn_disconnect">中斷投放</string>
+    <string name="tv_scroll_hint">使用上下鍵捲動說明。</string>
 </resources>
