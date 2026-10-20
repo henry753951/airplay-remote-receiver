@@ -36,6 +36,6 @@ application is distributed under GPL-3.0.
 
 Protocol behavior also follows the MIT-licensed
 [pyatv](https://github.com/postlund/pyatv), Copyright (c) 2020 Pierre Ståhl.
-The original Rust workspace, lockfile, JNI namespaces and notices are retained.
+The Rust protocol workspace, dependency lockfile and license notices are retained. Android and JNI adapters use the product namespace.
 The CLI is included for source completeness; Android ARMv7 is the release target.
 Dadb is Apache-2.0. Rust dependency licenses are listed in the bundled notices.

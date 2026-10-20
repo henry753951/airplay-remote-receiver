@@ -8,7 +8,7 @@ with the Apple TV Remote in iPhone Control Center.
 [![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download APK · v0.2.0-rc6](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc6)** ·
+**[Download APK · v0.2.0-rc7](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc7)** ·
 [All releases](https://github.com/henry753951/airplay-remote-receiver/releases) ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 
@@ -66,6 +66,10 @@ correctly during mirroring. DRM-protected video is unsupported.
 
 Background reception and display wake require a TV that keeps networking available
 in standby. Reception is unavailable when the TV is fully powered off or unplugged.
+
+## Development
+
+See [Architecture](docs/ARCHITECTURE.md) for source boundaries, receiver lifecycle and installation contracts.
 
 ## Build
 

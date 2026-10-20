@@ -14,7 +14,7 @@ val localProps = Properties().apply {
 val allAbis = listOf("armeabi-v7a")
 
 android {
-    namespace = "io.github.jqssun.airplay"
+    namespace = "io.github.henry753951.airplayremote"
     compileSdk = 37
     ndkVersion = "27.0.12077973"
 
@@ -33,8 +33,8 @@ android {
         applicationId = providers.gradleProperty("applicationIdOverride").getOrElse("io.github.henry753951.airplaytv")
         minSdk = 26
         targetSdk = 37
-        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(5)
-        versionName = "0.2.0-rc6"
+        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(6)
+        versionName = "0.2.0-rc7"
 
         externalNativeBuild {
             cmake {

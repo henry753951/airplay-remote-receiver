@@ -1,12 +1,12 @@
 # Keep JNI callback interface (called from native code)
--keep class io.github.jqssun.airplay.bridge.RaopCallbackHandler { *; }
--keep class * implements io.github.jqssun.airplay.bridge.RaopCallbackHandler { *; }
--keep class io.github.jqssun.airplay.bridge.LogListener { *; }
--keep class * implements io.github.jqssun.airplay.bridge.LogListener { *; }
+-keep class io.github.henry753951.airplayremote.airplay.bridge.RaopCallbackHandler { *; }
+-keep class * implements io.github.henry753951.airplayremote.airplay.bridge.RaopCallbackHandler { *; }
+-keep class io.github.henry753951.airplayremote.airplay.bridge.LogListener { *; }
+-keep class * implements io.github.henry753951.airplayremote.airplay.bridge.LogListener { *; }
 
 # Keep NativeBridge native methods
--keep class io.github.jqssun.airplay.bridge.NativeBridge { *; }
+-keep class io.github.henry753951.airplayremote.airplay.bridge.NativeBridge { *; }
 
--keep class com.corvofeng.fakeatv.AtvNative** { *; }
--keep class * implements com.corvofeng.fakeatv.AtvNative$Callback { *; }
--keep class com.corvofeng.fakeatv.PersistentInput { *; }
+-keep class io.github.henry753951.airplayremote.remote.protocol.RemoteNative** { *; }
+-keep class * implements io.github.henry753951.airplayremote.remote.protocol.RemoteNative$Callback { *; }
+-keep class io.github.henry753951.airplayremote.remote.input.PersistentInput { *; }

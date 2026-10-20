@@ -31,7 +31,7 @@
         android:banner="@drawable/banner"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AirPlayServer">
+        android:theme="@style/Theme.AirPlayRemoteReceiver">
 
         <activity
             android:name=".MainActivity"
@@ -47,8 +47,11 @@
             </intent-filter>
         </activity>
 
+        <activity-alias android:name="io.github.jqssun.airplay.MainActivity"
+            android:targetActivity="io.github.henry753951.airplayremote.MainActivity" android:exported="true" />
+
         <service
-            android:name=".service.AirPlayService"
+            android:name=".runtime.AirPlayService"
             android:foregroundServiceType="connectedDevice|mediaPlayback"
             android:exported="false" />
 
@@ -75,10 +78,15 @@
             android:exported="true"
             android:permission="android.permission.DUMP">
             <intent-filter>
+                <action android:name="io.github.henry753951.airplayremote.SET_SETTING" />
+                <action android:name="io.github.henry753951.airplayremote.LIST_SETTINGS" />
                 <action android:name="io.github.jqssun.airplay.SET_SETTING" />
                 <action android:name="io.github.jqssun.airplay.LIST_SETTINGS" />
             </intent-filter>
         </receiver>
+
+        <receiver android:name="io.github.jqssun.airplay.SettingsReceiver"
+            android:exported="true" android:permission="android.permission.DUMP" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

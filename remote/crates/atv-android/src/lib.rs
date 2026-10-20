@@ -112,7 +112,7 @@ static SERVER_STATE: Lazy<Mutex<Option<RunningServer>>> = Lazy::new(|| Mutex::ne
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[no_mangle]
-pub extern "system" fn Java_com_corvofeng_fakeatv_AtvNative_nativeStartServer(
+pub extern "system" fn Java_io_github_henry753951_airplayremote_remote_protocol_RemoteNative_nativeStartServer(
     mut env: JNIEnv,
     _class: JClass,
     name: JString,
@@ -229,7 +229,7 @@ pub extern "system" fn Java_com_corvofeng_fakeatv_AtvNative_nativeStartServer(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_corvofeng_fakeatv_AtvNative_nativeStopServer(
+pub extern "system" fn Java_io_github_henry753951_airplayremote_remote_protocol_RemoteNative_nativeStopServer(
     _env: JNIEnv,
     _class: JClass,
 ) {
@@ -250,7 +250,7 @@ pub extern "system" fn Java_com_corvofeng_fakeatv_AtvNative_nativeStopServer(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_corvofeng_fakeatv_AtvNative_nativeIsRunning(
+pub extern "system" fn Java_io_github_henry753951_airplayremote_remote_protocol_RemoteNative_nativeIsRunning(
     _env: JNIEnv,
     _class: JClass,
 ) -> jboolean {
