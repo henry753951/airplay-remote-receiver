@@ -9,7 +9,7 @@ share a name, a restrained TV interface and one background-service lifecycle.
 [![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download](https://github.com/henry753951/airplay-remote-receiver/releases/latest)** ·
+**[Download](https://github.com/henry753951/airplay-remote-receiver/releases)** ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 
 ## Features
