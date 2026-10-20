@@ -2,6 +2,15 @@ package io.github.jqssun.airplay.renderer
 import org.junit.Assert.*
 import org.junit.Test
 class ColorPolicyTest {
+    @Test fun rawSamplingOnlyHandlesFullRangeEightBit709Sdr() {
+        assertTrue(ColorPolicy.rawYuv(1, 1, 3, 19))
+        assertTrue(ColorPolicy.rawYuv(1, 1, 3, 21))
+        assertFalse(ColorPolicy.rawYuv(1, 2, 3, 21))
+        assertFalse(ColorPolicy.rawYuv(6, 1, 6, 21))
+        assertFalse(ColorPolicy.rawYuv(1, 1, 7, 21))
+        assertFalse(ColorPolicy.rawYuv(1, 1, 3, 54))
+        assertFalse(ColorPolicy.rawYuv(0, 0, 0, 0))
+    }
     @Test fun sourceRangeIsNotOverriddenByDefault() {
         assertNull(ColorPolicy.range("auto"))
         assertNull(ColorPolicy.range("unknown"))

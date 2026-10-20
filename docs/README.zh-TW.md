@@ -5,7 +5,7 @@
 將 iPhone、iPad 或 Mac 的畫面與音訊傳送到 Android TV，並透過 iPhone 控制中心內建的
 Apple TV 遙控器操作電視。
 
-**[下載 APK · v0.2.0-rc4](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc4)** ·
+**[下載 APK · v0.2.0-rc5](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc5)** ·
 [所有版本](https://github.com/henry753951/airplay-remote-receiver/releases) · [English](../README.md)
 
 ## 功能

@@ -254,6 +254,7 @@ class VideoRenderer(ctx: Context) {
     }
 
     private fun stopCodec() {
+        pipeline.useFullRangeYuv = false
         _frameIntervalIdx = 0
         _frameIntervalCount = 0
         _lastOutputFrameNs = 0L
@@ -275,6 +276,11 @@ class VideoRenderer(ctx: Context) {
             val idx = c.dequeueOutputBuffer(info, 0)
             if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 val f = c.outputFormat
+                fun value(key: String) = if (f.containsKey(key)) f.getInteger(key) else 0
+                pipeline.useFullRangeYuv = ColorPolicy.rawYuv(
+                    value(MediaFormat.KEY_COLOR_STANDARD), value(MediaFormat.KEY_COLOR_RANGE),
+                    value(MediaFormat.KEY_COLOR_TRANSFER), value(MediaFormat.KEY_COLOR_FORMAT)
+                )
                 colorInfo = listOf(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.KEY_COLOR_RANGE,
                     MediaFormat.KEY_COLOR_TRANSFER).joinToString { "$it=${if (f.containsKey(it)) f.getInteger(it) else 0}" }
                 Log.i(TAG, "Decoder output: $colorInfo")

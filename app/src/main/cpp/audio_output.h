@@ -102,6 +102,18 @@ public:
 
     void setClientGain(float g) { mCallbacks->setClientGain(g); }
 
+    // Run on the receive thread; automatic device buffering must also work without the debug UI.
+    void tuneBuffer() {
+        const int64_t now = monoNs();
+        if (now < mNextTuneNs) return;
+        mNextTuneNs = now + 100'000'000LL;
+        std::unique_lock<std::mutex> lk(mLock, std::try_to_lock);
+        if (lk.owns_lock() && mLatencyTuner && mStream) {
+            mLatencyTuner->tune();
+            mTimeline->noteOutputBufferFrames(mStream->getBufferSizeInFrames());
+        }
+    }
+
     // packed: nests into AudioDebugData with fixed layout
     struct __attribute__((packed)) Debug {
         int32_t xrun;  // cumulative
@@ -128,6 +140,7 @@ private:
     }
 
     bool openLocked() {  // caller holds mLock
+        mLatencyTuner.reset();
         // see: https://developer.android.com/games/sdk/oboe/low-latency-audio
         oboe::AudioStreamBuilder b;
         b.setDirection(oboe::Direction::Output)
@@ -161,6 +174,9 @@ private:
         // log what we actually got: oboe may clamp the buffer, fall back to a
         // higher-latency API, or deny the low-latency path
         const bool aaudio = mStream->getAudioApi() == oboe::AudioApi::AAudio;
+        if (aaudio && mLowLatency && mOboeBufferFrames == 0) {
+            mLatencyTuner = std::make_unique<oboe::LatencyTuner>(*mStream);
+        }
         const char *api = aaudio ? "AAudio"
                         : mStream->getAudioApi() == oboe::AudioApi::OpenSLES ? "OpenSLES" : "?";
         const bool lowLatency = mStream->getPerformanceMode() == oboe::PerformanceMode::LowLatency;
@@ -185,6 +201,8 @@ private:
     std::atomic<bool> mClosing{false};
     std::shared_ptr<OboeCallbacks> mCallbacks;
     std::shared_ptr<oboe::AudioStream> mStream;
+    std::unique_ptr<oboe::LatencyTuner> mLatencyTuner;  // guarded by mLock
+    int64_t mNextTuneNs = 0;  // receive thread only
     std::mutex mLock;                    // guards open/close
     int32_t mLastXrun = 0;               // debug-poll thread only
 };

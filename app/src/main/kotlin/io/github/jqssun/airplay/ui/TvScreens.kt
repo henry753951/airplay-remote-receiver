@@ -69,12 +69,15 @@ import io.github.jqssun.airplay.service.AirPlayService.ServerState
 import io.github.jqssun.airplay.viewmodel.LocalNetworkAccess
 import io.github.jqssun.airplay.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.Canvas
 
 // TV receiver look: near-black greys, white type, one white highlight for focus
 internal val TvBg = Color(0xFF0E0E10)
 internal val TvText = Color(0xFFF5F5F7)
 private val TvMuted = Color(0xFF9C9CA3)
-private val TvDim = Color(0xFF5A5A60)
 private val TvTile = Color(0xFF1D1D20)
 private val TvInk = Color(0xFF111113)
 private val TvError = Color(0xFFFF7A6E)
@@ -86,6 +89,7 @@ private const val FOCUS_MS = 110
 // every page knows where Back goes; parents are declared before children
 internal enum class TvPage(val parent: TvPage?) {
     HOME(null),
+    CAST_GUIDE(HOME), REMOTE_GUIDE(HOME),
     SETTINGS(HOME),
     GENERAL(SETTINGS), VIDEO(SETTINGS), AUDIO(SETTINGS), REMOTE(SETTINGS), POWER(SETTINGS), DIAGNOSTICS(SETTINGS),
     GRAYSCALE(VIDEO),
@@ -98,25 +102,45 @@ internal fun TvRouter(
     page: TvPage,
     onPage: (TvPage) -> Unit,
     idle: Boolean,
+    covered: Boolean,
     onLocalNetwork: () -> Unit,
     overview: @Composable (onSettings: () -> Unit, focusSettings: Boolean) -> Unit
 ) {
-    // focused row per page, so Back lands where the user left
+    // focused row per page, so Back lands where the viewer left
     val focusMemory = remember { mutableStateMapOf<TvPage, Int>() }
+    // pages reached from elsewhere (remote settings from the remote guide) go back the way they came
+    val trail = remember { mutableStateListOf<TvPage>() }
     var cameFrom by remember { mutableStateOf<TvPage?>(null) }
-    val go: (TvPage) -> Unit = { cameFrom = page; onPage(it) }
-    val back: () -> Unit = { page.parent?.let(go) }
+    val go: (TvPage) -> Unit = {
+        trail.add(page)
+        cameFrom = page
+        onPage(it)
+    }
+    val back: () -> Unit = {
+        val to = trail.removeLastOrNull() ?: page.parent
+        if (to != null) {
+            cameFrom = page
+            onPage(to)
+        }
+    }
     val memo = { p: TvPage -> focusMemory[p] ?: 0 }
     val saveFocus = { p: TvPage -> { i: Int -> focusMemory[p] = i } }
 
     key(page) {
         when (page) {
             TvPage.HOME -> if (idle) {
-                TvIdleScreen(viewModel, onLocalNetwork, onSettings = { go(TvPage.SETTINGS) },
-                    focusSettings = cameFrom == TvPage.SETTINGS)
+                // home is the root: nothing to go back to past here
+                LaunchedEffect(Unit) { trail.clear() }
+                TvIdleScreen(
+                    viewModel, onLocalNetwork, go,
+                    focusIndex = focusMemory[TvPage.HOME], onFocusIndex = saveFocus(TvPage.HOME),
+                    covered = covered
+                )
             } else {
                 overview({ go(TvPage.SETTINGS) }, cameFrom == TvPage.SETTINGS)
             }
+            TvPage.CAST_GUIDE -> TvCastGuide(viewModel, back, go)
+            TvPage.REMOTE_GUIDE -> TvRemoteGuide(viewModel, back, go)
             TvPage.SETTINGS -> TvRootSettings(viewModel, memo(page), saveFocus(page), back, go)
             TvPage.GENERAL, TvPage.VIDEO, TvPage.AUDIO, TvPage.REMOTE, TvPage.POWER, TvPage.DIAGNOSTICS ->
                 TvCategory(viewModel, page, memo(page), saveFocus(page), back, go)
@@ -170,25 +194,6 @@ private enum class TvHealth { READY, BUSY, OFF, ERROR }
 private class TvStatus(val health: TvHealth, @StringRes val label: Int)
 
 @Composable
-private fun airPlayStatus(viewModel: MainViewModel): TvStatus {
-    val state by viewModel.serverState.collectAsState()
-    val localNetwork by viewModel.localNetwork.collectAsState()
-    val connections by viewModel.connectionCount.collectAsState()
-    val mirroring by viewModel.mirroringActive.collectAsState()
-    val audio by viewModel.audioOnly.collectAsState()
-    val video by viewModel.videoPlaybackActive.collectAsState()
-    return when {
-        state != ServerState.RUNNING && localNetwork != LocalNetworkAccess.GRANTED ->
-            TvStatus(TvHealth.ERROR, R.string.tv_state_needs_permission)
-        state == ServerState.ERROR -> TvStatus(TvHealth.ERROR, R.string.tv_state_error)
-        state == ServerState.STOPPED -> TvStatus(TvHealth.OFF, R.string.tv_state_stopped)
-        connections > 0 && (mirroring || audio || video) -> TvStatus(TvHealth.READY, R.string.tv_state_connected)
-        connections > 0 -> TvStatus(TvHealth.BUSY, R.string.tv_state_connecting)
-        else -> TvStatus(TvHealth.READY, R.string.tv_state_ready)
-    }
-}
-
-@Composable
 private fun remoteStatus(viewModel: MainViewModel): TvStatus {
     val enabled by viewModel.pref(Prefs.REMOTE_ENABLED).collectAsState()
     val status by RemoteState.status.collectAsState()
@@ -205,118 +210,413 @@ private fun remoteStatus(viewModel: MainViewModel): TvStatus {
     }
 }
 
+// Home stays silent while things work; only a problem the viewer can act on earns a line on screen.
+private class TvAttention(@StringRes val title: Int, @StringRes val body: Int, @StringRes val action: Int, val onAction: () -> Unit)
+
 @Composable
-private fun StatusDot(health: TvHealth) {
-    val mod = Modifier.size(8.dp).clip(CircleShape)
-    when (health) {
-        TvHealth.READY -> Box(mod.background(TvText))
-        TvHealth.BUSY -> Box(mod.background(TvMuted))
-        TvHealth.ERROR -> Box(mod.background(TvError))
-        TvHealth.OFF -> Box(mod.border(1.5.dp, TvDim, CircleShape))
+private fun homeAttention(viewModel: MainViewModel, onLocalNetwork: () -> Unit, go: (TvPage) -> Unit): TvAttention? {
+    val state by viewModel.serverState.collectAsState()
+    val localNetwork by viewModel.localNetwork.collectAsState()
+    val remoteEnabled by viewModel.pref(Prefs.REMOTE_ENABLED).collectAsState()
+    val remote by RemoteState.status.collectAsState()
+    val ctx = LocalContext.current
+    return when {
+        state != ServerState.RUNNING && localNetwork != LocalNetworkAccess.GRANTED ->
+            TvAttention(R.string.tv_attn_permission, R.string.local_network_desc, R.string.btn_allow, onLocalNetwork)
+        state == ServerState.ERROR ->
+            TvAttention(R.string.tv_attn_airplay_error, R.string.tv_attn_airplay_error_body, R.string.tv_retry, viewModel::startServer)
+        state == ServerState.STOPPED ->
+            TvAttention(R.string.tv_attn_airplay_off, R.string.tv_attn_airplay_off_body, R.string.btn_start, viewModel::startServer)
+        // the remote is the only part that reports the network; without one AirPlay can't be found either
+        remoteEnabled && remote == "waiting" ->
+            TvAttention(R.string.tv_attn_network, R.string.tv_attn_network_body, R.string.tv_attn_network_action) {
+                openSystemSettings(ctx, Settings.ACTION_WIFI_SETTINGS)
+            }
+        remoteEnabled && remote == "error" ->
+            TvAttention(R.string.tv_attn_remote_error, R.string.tv_attn_remote_error_body, R.string.tv_remote_guide_settings) {
+                go(TvPage.REMOTE)
+            }
+        else -> null
     }
 }
 
-@Composable
-private fun StatusItem(service: String, status: TvStatus) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        StatusDot(status.health)
-        Spacer(Modifier.width(10.dp))
-        Text(service, color = TvText, fontSize = 16.sp)
-        Spacer(Modifier.width(8.dp))
-        Text(stringResource(status.label), color = TvMuted, fontSize = 16.sp)
+private fun openSystemSettings(ctx: android.content.Context, action: String) {
+    val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        ctx.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        try {
+            ctx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: ActivityNotFoundException) {
+        }
     }
 }
 
 // ---- home ----
 
+private enum class TvHomeEntry { CAST, REMOTE, SETTINGS }
+
+private const val ATTENTION_DELAY_MS = 1_500L
+
 @Composable
 internal fun TvIdleScreen(
     viewModel: MainViewModel,
     onLocalNetwork: () -> Unit,
-    onSettings: () -> Unit,
-    focusSettings: Boolean
+    go: (TvPage) -> Unit,
+    focusIndex: Int?,
+    onFocusIndex: (Int) -> Unit,
+    covered: Boolean
 ) {
     val state by viewModel.serverState.collectAsState()
-    val localNetwork by viewModel.localNetwork.collectAsState()
     val connections by viewModel.connectionCount.collectAsState()
     val serverName by viewModel.pref(Prefs.SERVER_NAME).collectAsState()
-    val grant = state != ServerState.RUNNING && localNetwork != LocalNetworkAccess.GRANTED
-    val needsStart = grant || state != ServerState.RUNNING
+    val remoteEnabled by viewModel.pref(Prefs.REMOTE_ENABLED).collectAsState()
     val activity = LocalContext.current as? Activity
-    val airPlay = airPlayStatus(viewModel)
-    val remote = remoteStatus(viewModel)
+    // states settle for a moment after launch (the service binds, the network comes up); only a
+    // problem that lasts gets shown, and it leaves as soon as it is fixed
+    val pending = homeAttention(viewModel, onLocalNetwork, go)
+    var settled by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pending?.title) {
+        settled = null
+        if (pending != null) {
+            delay(ATTENTION_DELAY_MS)
+            settled = pending.title
+        }
+    }
+    val attention = pending?.takeIf { it.title == settled }
 
-    val startFocus = remember { FocusRequester() }
-    val settingsFocus = remember { FocusRequester() }
-    val homeFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        when {
-            needsStart -> startFocus
-            focusSettings -> settingsFocus
-            else -> homeFocus
-        }.requestFocusUntilLanded()
+    // Back leaves for the TV home without closing the receiver, like the system's own sources
+    BackHandler {
+        activity?.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    val reveal by animateFloatAsState(if (shown) 1f else 0f, tween(320, easing = FastOutSlowInEasing), label = "reveal")
-
-    Box(Modifier.fillMaxSize().background(TvBackdrop).padding(horizontal = 56.dp, vertical = 40.dp)) {
-        // quiet status bar: the TV's name on the left, each service on its own on the right
-        Row(
-            Modifier.fillMaxWidth().align(Alignment.TopStart).graphicsLayer { alpha = reveal },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                serverName, color = TvMuted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            StatusItem(stringResource(R.string.tv_service_airplay), airPlay)
-            Spacer(Modifier.width(32.dp))
-            StatusItem(stringResource(R.string.tv_service_remote), remote)
+    val entries = TvHomeEntry.entries
+    val requesters = remember { List(entries.size) { FocusRequester() } }
+    val actionFocus = remember { FocusRequester() }
+    var actionFocused by remember { mutableStateOf(false) }
+    // once the problem is fixed its card leaves; the focus must not leave with it
+    LaunchedEffect(attention == null) {
+        if (attention == null && actionFocused) {
+            actionFocused = false
+            requesters[0].requestFocusUntilLanded()
         }
+    }
+    var focused by remember { mutableStateOf(entries[(focusIndex ?: 0).coerceIn(0, entries.lastIndex)]) }
+    // coming back lands where the viewer left; a fresh visit starts on the first entry
+    val firstVisit = remember { focusIndex == null }
+    var moves by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { requesters[(focusIndex ?: 0).coerceIn(0, entries.lastIndex)].requestFocusUntilLanded() }
+    // a problem that turns up on a fresh visit, before the viewer has moved, takes the focus to its fix
+    LaunchedEffect(attention != null) {
+        if (attention != null && firstVisit && moves <= 1) actionFocus.requestFocusUntilLanded()
+    }
+
+    // the entrance plays once, after the cast stage has lifted rather than hidden underneath it;
+    // coming back from a page inside the app just shows home
+    val reveal = remember { Animatable(if (focusIndex == null) 0f else 1f) }
+    LaunchedEffect(covered) {
+        if (!covered) reveal.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+    }
+
+    Row(
+        Modifier
+            .fillMaxSize()
+            .background(TvBackdrop)
+            .padding(start = 80.dp, end = 64.dp)
+            .graphicsLayer { alpha = reveal.value }
+    ) {
         Column(
-            Modifier.align(Alignment.Center).graphicsLayer {
-                alpha = reveal
-                translationY = (1f - reveal) * 14.dp.toPx()
-            },
-            horizontalAlignment = Alignment.CenterHorizontally
+            Modifier
+                .weight(0.5f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 72.dp, bottom = 48.dp, end = 32.dp)
+                .graphicsLayer { translationY = (1f - reveal.value) * 12.dp.toPx() }
         ) {
-            AirPlayMark(56.dp, TvText)
-            Spacer(Modifier.height(28.dp))
             Text(
-                stringResource(
-                    when {
-                        grant -> R.string.local_network_desc
-                        state == ServerState.RUNNING && connections > 0 -> R.string.waiting_for_playback
-                        state == ServerState.RUNNING -> R.string.tv_status_ready
-                        state == ServerState.ERROR -> R.string.error_starting_server
-                        else -> R.string.server_stopped
-                    }
-                ),
-                color = TvText, fontSize = 28.sp, fontWeight = FontWeight.Light, textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 720.dp)
+                stringResource(R.string.tv_home_title),
+                color = TvText, fontSize = 40.sp, lineHeight = 48.sp, fontWeight = FontWeight.Light
             )
-        }
-        Row(
-            Modifier.align(Alignment.BottomCenter).graphicsLayer { alpha = reveal },
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            if (needsStart) {
-                TvPill(
-                    stringResource(if (grant) R.string.btn_allow else R.string.btn_start),
-                    onClick = if (grant) onLocalNetwork else viewModel::startServer,
-                    modifier = Modifier.focusRequester(startFocus)
+            Spacer(Modifier.height(14.dp))
+            // the name sits in the sentence the viewer needs it for, not as a headline
+            val waiting = state == ServerState.RUNNING && connections > 0
+            Text(
+                if (waiting) {
+                    androidx.compose.ui.text.AnnotatedString(stringResource(R.string.waiting_for_playback))
+                } else {
+                    tvChooseName(stringResource(R.string.tv_home_hint, serverName), serverName)
+                },
+                color = TvMuted, fontSize = 18.sp, lineHeight = 27.sp
+            )
+            Spacer(Modifier.height(36.dp))
+            if (attention != null) {
+                TvAttentionCard(
+                    attention,
+                    Modifier.focusRequester(actionFocus).onFocusChanged { actionFocused = it.isFocused }
                 )
+                Spacer(Modifier.height(20.dp))
             }
-            TvPill(stringResource(R.string.tv_settings), onSettings, Modifier.focusRequester(settingsFocus))
-            TvPill(
-                stringResource(R.string.tv_home),
-                onClick = { activity?.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)) },
-                modifier = Modifier.focusRequester(homeFocus)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                entries.forEachIndexed { i, entry ->
+                    val labels = when (entry) {
+                        TvHomeEntry.CAST -> R.string.tv_home_cast to R.string.tv_home_cast_sub
+                        TvHomeEntry.REMOTE -> R.string.tv_home_remote to
+                            if (remoteEnabled) R.string.tv_home_remote_sub else R.string.tv_home_remote_off
+                        TvHomeEntry.SETTINGS -> R.string.tv_settings to R.string.tv_home_settings_sub
+                    }
+                    TvHomeRow(
+                        title = stringResource(labels.first),
+                        subtitle = stringResource(labels.second),
+                        modifier = Modifier.focusRequester(requesters[i]),
+                        onFocused = {
+                            focused = entry
+                            moves++
+                            onFocusIndex(i)
+                        },
+                        onClick = {
+                            go(
+                                when (entry) {
+                                    TvHomeEntry.CAST -> TvPage.CAST_GUIDE
+                                    TvHomeEntry.REMOTE -> TvPage.REMOTE_GUIDE
+                                    TvHomeEntry.SETTINGS -> TvPage.SETTINGS
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        // the right half answers "what is this?" for the focused entry, with a picture, not words
+        Box(Modifier.weight(0.5f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Crossfade(targetState = focused, animationSpec = tween(220), label = "art") { entry ->
+                when (entry) {
+                    TvHomeEntry.CAST -> TvCastArt()
+                    TvHomeEntry.REMOTE -> TvRemoteArt(remoteEnabled)
+                    TvHomeEntry.SETTINGS -> TvSettingsArt()
+                }
+            }
         }
     }
+}
+
+// brightens just the TV name inside the sentence, so it reads as the thing to pick
+private fun tvChooseName(sentence: String, name: String) = androidx.compose.ui.text.buildAnnotatedString {
+    append(sentence)
+    val at = sentence.indexOf(name)
+    if (at >= 0 && name.isNotEmpty()) {
+        addStyle(androidx.compose.ui.text.SpanStyle(color = TvText), at, at + name.length)
+    }
+}
+
+@Composable
+private fun TvHomeRow(
+    title: String,
+    subtitle: String,
+    modifier: Modifier,
+    onFocused: () -> Unit,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val bg by animateColorAsState(if (focused) TvText else Color(0x0FFFFFFF), tween(FOCUS_MS), label = "homeBg")
+    val fg by animateColorAsState(if (focused) TvInk else TvText, tween(FOCUS_MS), label = "homeFg")
+    val sub by animateColorAsState(if (focused) TvInk.copy(alpha = 0.6f) else TvMuted, tween(FOCUS_MS), label = "homeSub")
+    Row(
+        modifier
+            .fillMaxWidth()
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .clip(RoundedCornerShape(18.dp))
+            .background(bg)
+            .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = onClick)
+            .heightIn(min = 76.dp)
+            .padding(horizontal = 26.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = fg, fontSize = 21.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, color = sub, fontSize = 16.sp)
+        }
+        Spacer(Modifier.width(16.dp))
+        Text("›", color = sub, fontSize = 24.sp)
+    }
+}
+
+@Composable
+private fun TvAttentionCard(attention: TvAttention, actionModifier: Modifier) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, TvError.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
+            .background(TvError.copy(alpha = 0.08f))
+            .padding(horizontal = 24.dp, vertical = 18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(TvError))
+            Spacer(Modifier.width(12.dp))
+            Text(stringResource(attention.title), color = TvText, fontSize = 19.sp, fontWeight = FontWeight.Medium)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(stringResource(attention.body), color = TvMuted, fontSize = 16.sp, lineHeight = 23.sp)
+        Spacer(Modifier.height(14.dp))
+        TvPill(stringResource(attention.action), attention.onAction, actionModifier)
+    }
+}
+
+// ---- home artwork: drawn, static, no animation of its own ----
+
+@Composable
+private fun TvCastArt() {
+    Box(Modifier.size(360.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val c = center
+            val w = 1.5.dp.toPx()
+            listOf(78.dp to 0.16f, 122.dp to 0.09f, 166.dp to 0.05f).forEach { ring ->
+                drawCircle(TvText.copy(alpha = ring.second), radius = ring.first.toPx(), center = c, style = Stroke(width = w))
+            }
+        }
+        AirPlayMark(72.dp, TvText)
+    }
+}
+
+@Composable
+private fun TvRemoteArt(enabled: Boolean) {
+    val tint = TvText.copy(alpha = if (enabled) 0.85f else 0.35f)
+    Canvas(Modifier.size(width = 150.dp, height = 360.dp)) {
+        val w = 2.dp.toPx()
+        val body = androidx.compose.ui.geometry.Size(size.width - w, size.height - w)
+        drawRoundRect(
+            tint, topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2), size = body,
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width / 2.6f), style = Stroke(width = w)
+        )
+        val cx = size.width / 2
+        // touch surface, then two rows of buttons, like the remote on the viewer's phone
+        drawCircle(tint, radius = size.width * 0.32f, center = androidx.compose.ui.geometry.Offset(cx, size.height * 0.24f), style = Stroke(width = w))
+        drawCircle(tint.copy(alpha = tint.alpha * 0.6f), radius = size.width * 0.07f, center = androidx.compose.ui.geometry.Offset(cx, size.height * 0.24f))
+        val r = size.width * 0.11f
+        listOf(0.52f, 0.66f).forEach { y ->
+            listOf(0.32f, 0.68f).forEach { x ->
+                drawCircle(tint, radius = r, center = androidx.compose.ui.geometry.Offset(size.width * x, size.height * y), style = Stroke(width = w))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvSettingsArt() {
+    Canvas(Modifier.size(width = 300.dp, height = 220.dp)) {
+        val w = 2.dp.toPx()
+        listOf(0.2f to 0.68f, 0.5f to 0.32f, 0.8f to 0.55f).forEach { track ->
+            val cy = size.height * track.first
+            val knob = track.second
+            drawLine(TvText.copy(alpha = 0.22f), androidx.compose.ui.geometry.Offset(0f, cy), androidx.compose.ui.geometry.Offset(size.width, cy), strokeWidth = w)
+            drawCircle(TvText, radius = 12.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * knob, cy))
+        }
+    }
+}
+
+// ---- guides: how to start from the phone, since casting always begins there ----
+
+@Composable
+private fun TvGuidePage(
+    title: String,
+    lead: String,
+    steps: List<String>,
+    note: String?,
+    actions: List<Pair<String, () -> Unit>>,
+    onBack: () -> Unit,
+    art: @Composable () -> Unit
+) {
+    BackHandler(onBack = onBack)
+    val first = remember { FocusRequester() }
+    // keyed on the count: turning the remote on removes the focused button, so land on the new first one
+    LaunchedEffect(actions.size) { if (actions.isNotEmpty()) first.requestFocusUntilLanded() }
+    Row(Modifier.fillMaxSize().background(TvBackdrop).padding(start = 80.dp, end = 64.dp)) {
+        Column(
+            Modifier
+                .weight(0.56f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 72.dp, bottom = 48.dp, end = 40.dp)
+        ) {
+            Text(title, color = TvText, fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.Light)
+            Spacer(Modifier.height(12.dp))
+            Text(lead, color = TvMuted, fontSize = 18.sp, lineHeight = 27.sp)
+            Spacer(Modifier.height(32.dp))
+            steps.forEachIndexed { i, step ->
+                Row(Modifier.padding(bottom = 18.dp)) {
+                    Box(
+                        Modifier.size(30.dp).clip(CircleShape).border(1.5.dp, TvText.copy(alpha = 0.5f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("${i + 1}", color = TvText, fontSize = 15.sp)
+                    }
+                    Spacer(Modifier.width(18.dp))
+                    Text(step, color = TvText, fontSize = 19.sp, lineHeight = 28.sp, modifier = Modifier.padding(top = 1.dp))
+                }
+            }
+            if (note != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(note, color = TvMuted, fontSize = 16.sp, lineHeight = 24.sp)
+            }
+            if (actions.isNotEmpty()) {
+                Spacer(Modifier.height(30.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    actions.forEachIndexed { i, action ->
+                        TvPill(action.first, action.second, if (i == 0) Modifier.focusRequester(first) else Modifier)
+                    }
+                }
+            }
+        }
+        Box(Modifier.weight(0.44f).fillMaxHeight(), contentAlignment = Alignment.Center) { art() }
+    }
+}
+
+@Composable
+private fun TvCastGuide(viewModel: MainViewModel, onBack: () -> Unit, go: (TvPage) -> Unit) {
+    val serverName by viewModel.pref(Prefs.SERVER_NAME).collectAsState()
+    val requirePin by viewModel.pref(Prefs.REQUIRE_PIN).collectAsState()
+    TvGuidePage(
+        title = stringResource(R.string.tv_cast_guide_title),
+        lead = stringResource(R.string.tv_cast_guide_lead),
+        steps = listOf(
+            stringResource(R.string.tv_cast_step_open),
+            stringResource(R.string.tv_cast_step_mirror),
+            stringResource(R.string.tv_cast_step_pick, serverName),
+        ),
+        note = stringResource(if (requirePin) R.string.tv_cast_note_pin else R.string.tv_cast_note_mac),
+        actions = listOf(stringResource(R.string.tv_cast_guide_rename) to { go(TvPage.GENERAL) }),
+        onBack = onBack,
+        art = { TvCastArt() }
+    )
+}
+
+@Composable
+private fun TvRemoteGuide(viewModel: MainViewModel, onBack: () -> Unit, go: (TvPage) -> Unit) {
+    val serverName by viewModel.pref(Prefs.SERVER_NAME).collectAsState()
+    val enabled by viewModel.pref(Prefs.REMOTE_ENABLED).collectAsState()
+    val turnOn = stringResource(R.string.tv_remote_turn_on)
+    val settings = stringResource(R.string.tv_remote_guide_settings)
+    TvGuidePage(
+        title = stringResource(R.string.tv_remote_guide_title),
+        lead = stringResource(if (enabled) R.string.tv_remote_guide_lead else R.string.tv_remote_guide_off),
+        steps = listOf(
+            stringResource(R.string.tv_remote_step_open),
+            stringResource(R.string.tv_remote_step_pick, serverName),
+            stringResource(R.string.tv_remote_step_code),
+        ),
+        note = stringResource(R.string.tv_remote_guide_note),
+        actions = if (enabled) {
+            listOf(settings to { go(TvPage.REMOTE) })
+        } else {
+            listOf(turnOn to { viewModel.set(Prefs.REMOTE_ENABLED, true) }, settings to { go(TvPage.REMOTE) })
+        },
+        onBack = onBack,
+        art = { TvRemoteArt(enabled) }
+    )
 }
 
 // ---- settings building blocks ----
@@ -634,11 +934,11 @@ private fun videoItems(viewModel: MainViewModel, go: (TvPage) -> Unit): List<TvI
     return listOf(
         toggle(viewModel, Prefs.AUTO_FULLSCREEN, R.string.setting_auto_fullscreen, R.string.setting_auto_fullscreen_desc),
         TvItem(
-            stringResource(R.string.setting_resolution), stringResource(R.string.setting_resolution_desc),
+            stringResource(R.string.setting_resolution), stringResource(R.string.tv_resolution_desc),
             choices = resolutions, selected = resolution, onPick = { viewModel.set(Prefs.RESOLUTION, it) }
         ),
         TvItem(
-            stringResource(R.string.setting_max_fps), stringResource(R.string.setting_max_fps_desc),
+            stringResource(R.string.tv_fps), stringResource(R.string.tv_fps_desc),
             choices = fpsOptions, selected = maxFps.toString(),
             onPick = { v -> v.toIntOrNull()?.let { viewModel.set(Prefs.MAX_FPS, it) } }
         ),
@@ -652,7 +952,7 @@ private fun videoItems(viewModel: MainViewModel, go: (TvPage) -> Unit): List<TvI
             selected = colorRange, onPick = { viewModel.set(Prefs.COLOR_RANGE, it) }
         ),
         TvItem(
-            stringResource(R.string.setting_h265), stringResource(R.string.setting_h265_desc),
+            stringResource(R.string.tv_hevc), stringResource(R.string.tv_hevc_desc),
             choices = listOf(
                 Prefs.AUTO to auto,
                 Prefs.ON to stringResource(R.string.chip_on),
@@ -660,7 +960,7 @@ private fun videoItems(viewModel: MainViewModel, go: (TvPage) -> Unit): List<TvI
             ),
             selected = h265, onPick = { viewModel.set(Prefs.H265, it) }
         ),
-        toggle(viewModel, Prefs.OVERSCANNED, R.string.setting_overscanned, R.string.setting_overscanned_desc),
+        toggle(viewModel, Prefs.OVERSCANNED, R.string.tv_overscan, R.string.tv_overscan_desc),
         TvItem(
             stringResource(R.string.tv_grayscale), stringResource(R.string.tv_grayscale_desc),
             link = true, onClick = { go(TvPage.GRAYSCALE) }
@@ -683,7 +983,7 @@ private fun audioItems(viewModel: MainViewModel): List<TvItem> {
             choices = latencies, selected = latency.toString(),
             onPick = { v -> v.toIntOrNull()?.let { viewModel.set(Prefs.AUDIO_LATENCY_MS, it) } }
         ),
-        toggle(viewModel, Prefs.AUDIO_AUTO_BUFFER, R.string.setting_audio_auto_buffer, R.string.tv_audio_auto_buffer_desc),
+        toggle(viewModel, Prefs.AUDIO_AUTO_BUFFER, R.string.tv_audio_smooth, R.string.tv_audio_auto_buffer_desc),
     )
 }
 
@@ -721,20 +1021,31 @@ private fun remoteItems(viewModel: MainViewModel): List<TvItem> {
         ),
         TvItem(
             stringResource(R.string.tv_remote_adb), stringResource(R.string.tv_remote_adb_desc),
-            value = stringResource(if (adb) R.string.tv_state_connected else R.string.tv_state_disconnected)
+            value = stringResource(if (adb) R.string.tv_state_ready else R.string.tv_state_not_ready)
         ),
         TvItem(stringResource(R.string.tv_remote_dpad), stringResource(R.string.tv_remote_dpad_desc)),
     )
 }
 
 @Composable
-private fun powerItems(viewModel: MainViewModel): List<TvItem> = listOf(
+private fun powerItems(viewModel: MainViewModel): List<TvItem> {
+    val standby by viewModel.pref(Prefs.STANDBY_REACHABLE).collectAsState()
+    return listOf(
     toggle(viewModel, Prefs.RUN_IN_BACKGROUND, R.string.setting_run_in_background, R.string.setting_run_in_background_desc),
     toggle(viewModel, Prefs.BOOT_AUTO_START, R.string.setting_boot_auto_start, R.string.setting_boot_auto_start_desc),
-    toggle(viewModel, Prefs.STANDBY_REACHABLE, R.string.tv_standby, R.string.tv_standby_desc),
+    TvItem(
+        stringResource(R.string.tv_power_mode), stringResource(R.string.tv_power_mode_desc),
+        choices = listOf(
+            Prefs.ON to stringResource(R.string.tv_power_standby),
+            Prefs.OFF to stringResource(R.string.tv_power_saving),
+        ),
+        selected = if (standby) Prefs.ON else Prefs.OFF,
+        onPick = { viewModel.set(Prefs.STANDBY_REACHABLE, it == Prefs.ON) }
+    ),
     toggle(viewModel, Prefs.KEEP_SCREEN_ON, R.string.setting_keep_screen_on, R.string.setting_keep_screen_on_desc),
     toggle(viewModel, Prefs.AUTO_START, R.string.setting_auto_start, R.string.setting_auto_start_desc),
 )
+}
 
 @Composable
 private fun diagnosticsItems(viewModel: MainViewModel, go: (TvPage) -> Unit): List<TvItem> = listOf(
@@ -1016,5 +1327,139 @@ private fun PinDigit(digit: Char, index: Int, paired: Boolean) {
             digit.toString(), color = lerp(TvText, TvInk, fill),
             fontSize = 60.sp, fontWeight = FontWeight.Light
         )
+    }
+}
+
+// ---- cast stage ----
+
+// Sits between "a device connected" and its first picture, so casting feels like the TV changing
+// input rather than an app opening. Covers the receiver UI, then opens onto the stream.
+internal class TvCastStage {
+    // the service state isn't known until the activity binds; hold plain black until it is,
+    // so neither the receiver UI nor the stage flashes up the wrong way
+    var settling by mutableStateOf(true)
+    var visible by mutableStateOf(true)
+    var revealing by mutableStateOf(false)
+    // one stage per connection: a timeout or Back must not bring it back until the sender reconnects
+    var spent = false
+    val veil = Animatable(1f)
+    val mark = Animatable(0f)
+    val ring = Animatable(0f)
+}
+
+private const val STAGE_SETTLE_MS = 350L
+private const val STAGE_TIMEOUT_MS = 8_000L
+
+@Composable
+internal fun rememberTvCastStage(connected: Boolean, streaming: Boolean, pinShowing: Boolean): TvCastStage {
+    val stage = remember { TvCastStage() }
+    LaunchedEffect(connected, streaming) {
+        if (stage.settling && !connected && !streaming) {
+            // nothing is connecting (yet); a late bind that says otherwise restarts this effect
+            delay(STAGE_SETTLE_MS)
+            stage.settling = false
+            stage.veil.animateTo(0f, tween(200))
+            stage.visible = false
+            return@LaunchedEffect
+        }
+        stage.settling = false
+        when {
+            !connected -> {
+                stage.spent = false
+                if (stage.visible) {
+                    stage.veil.animateTo(0f, tween(220))
+                    stage.visible = false
+                    stage.revealing = false
+                }
+            }
+            streaming -> {
+                stage.spent = true
+                if (stage.visible && !stage.revealing) {
+                    stage.revealing = true
+                    try {
+                        // give the decoder a beat to put its first frame up behind the veil
+                        delay(200)
+                        coroutineScope {
+                            launch { stage.mark.animateTo(0f, tween(340, easing = FastOutSlowInEasing)) }
+                            stage.veil.animateTo(0f, tween(420, delayMillis = 80, easing = FastOutSlowInEasing))
+                        }
+                    } finally {
+                        // an interrupted reveal must never leave the picture covered
+                        stage.visible = false
+                        stage.revealing = false
+                    }
+                }
+            }
+            !stage.spent -> {
+                stage.spent = true
+                stage.revealing = false
+                stage.visible = true
+                coroutineScope {
+                    launch { stage.mark.animateTo(1f, tween(520, easing = FastOutSlowInEasing)) }
+                    stage.veil.animateTo(1f, tween(240))
+                }
+            }
+        }
+    }
+    LaunchedEffect(stage.visible, stage.revealing, stage.settling) {
+        if (stage.visible && !stage.revealing && !stage.settling) {
+            stage.ring.snapTo(0f)
+            stage.ring.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
+        }
+    }
+    // a sender that connects but never streams (or a bare probe) must not leave the TV covered;
+    // the clock waits while a code is on screen
+    LaunchedEffect(stage.visible, stage.revealing, stage.settling, pinShowing) {
+        if (stage.visible && !stage.revealing && !stage.settling && !pinShowing) {
+            delay(STAGE_TIMEOUT_MS)
+            stage.veil.animateTo(0f, tween(300))
+            stage.visible = false
+        }
+    }
+    return stage
+}
+
+@Composable
+internal fun TvCastStageLayer(stage: TvCastStage) {
+    if (!stage.visible) return
+    BackHandler(enabled = !stage.settling) {
+        stage.visible = false
+        stage.revealing = false
+    }
+    Box(
+        Modifier.fillMaxSize().graphicsLayer { alpha = stage.veil.value }.background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.graphicsLayer {
+                val m = stage.mark.value
+                alpha = m
+                // in: settle from slightly small; out: open up towards the viewer
+                val s = if (stage.revealing) 1f + (1f - m) * 0.14f else 0.92f + 0.08f * m
+                scaleX = s
+                scaleY = s
+            }
+        ) {
+            Box(Modifier.size(136.dp), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val w = 1.5.dp.toPx()
+                    drawArc(
+                        // the ring draws itself once and then holds still: no looping work while waiting
+                        color = TvText.copy(alpha = 0.32f),
+                        startAngle = -90f, sweepAngle = 360f * stage.ring.value, useCenter = false,
+                        topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
+                        size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                        style = Stroke(width = w)
+                    )
+                }
+                AirPlayMark(48.dp, TvText)
+            }
+            Spacer(Modifier.height(30.dp))
+            Text(
+                stringResource(R.string.tv_stage_connecting),
+                color = TvMuted, fontSize = 20.sp, fontWeight = FontWeight.Light
+            )
+        }
     }
 }

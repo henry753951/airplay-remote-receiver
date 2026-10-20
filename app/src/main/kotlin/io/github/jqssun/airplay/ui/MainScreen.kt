@@ -121,6 +121,15 @@ fun MainScreen(
     val videoPlaybackActive by viewModel.videoPlaybackActive.collectAsState()
     val videoSessionPending by viewModel.videoSessionPending.collectAsState()
     val mirroringActive by viewModel.mirroringActive.collectAsState()
+    // TV only: a quiet stage between a sender connecting and its first picture
+    val castStage = if (isTv()) {
+        rememberTvCastStage(
+            connected = connections > 0,
+            // a pending video session is still loading; keep the stage up until it actually plays
+            streaming = mirroringActive || videoPlaybackActive || audioOnly,
+            pinShowing = pin != null || remotePin != null
+        )
+    } else null
     val autoFullscreen by viewModel.pref(Prefs.AUTO_FULLSCREEN).collectAsState()
 
     // don't use movableContentOf: moving AndroidView across subcomposition boundaries makes it crash on reparent
@@ -498,6 +507,7 @@ fun MainScreen(
                 onDismiss = { showSpeedSelector = false }
             )
         }
+        castStage?.let { TvCastStageLayer(it) }
         if (isTv()) tvPins()
         return
     }
@@ -540,6 +550,7 @@ fun MainScreen(
             TvRouter(
                 viewModel, tvPage, onPage = { tvPage = it },
                 idle = !mirroringActive && !audioOnly,
+                covered = castStage?.visible == true,
                 onLocalNetwork = onLocalNetwork
             ) { onSettings, focusSettings ->
                 Box(Modifier.fillMaxSize().padding(32.dp)) {
@@ -584,6 +595,8 @@ fun MainScreen(
             }
         }
     }
+
+    castStage?.let { TvCastStageLayer(it) }
 
     // pin dialog
     if (isTv()) {

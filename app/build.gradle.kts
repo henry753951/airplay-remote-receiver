@@ -33,8 +33,8 @@ android {
         applicationId = providers.gradleProperty("applicationIdOverride").getOrElse("io.github.henry753951.airplaytv")
         minSdk = 26
         targetSdk = 37
-        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(3)
-        versionName = "0.2.0"
+        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(4)
+        versionName = "0.2.0-rc5"
 
         externalNativeBuild {
             cmake {

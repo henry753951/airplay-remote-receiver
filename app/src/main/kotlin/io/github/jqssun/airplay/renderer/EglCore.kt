@@ -7,12 +7,13 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.view.Surface
 
-class EglCore : AutoCloseable {
+class EglCore(preferGles3: Boolean = false) : AutoCloseable {
 
     private val display: EGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
     private val config: EGLConfig
     private val context: EGLContext
     private val pbuffer: EGLSurface
+    val clientVersion: Int
 
     init {
         EGL14.eglInitialize(display, IntArray(2), 0, IntArray(2), 1)
@@ -25,7 +26,14 @@ class EglCore : AutoCloseable {
         val configs = arrayOfNulls<EGLConfig>(1)
         EGL14.eglChooseConfig(display, attribs, 0, configs, 0, 1, IntArray(1), 0)
         config = configs[0] ?: error("no egl config")
-        context = EGL14.eglCreateContext(
+        val supported = IntArray(1)
+        EGL14.eglGetConfigAttrib(display, config, EGL14.EGL_RENDERABLE_TYPE, supported, 0)
+        val es3 = if (preferGles3 && supported[0] and 0x40 != 0) EGL14.eglCreateContext(
+            display, config, EGL14.EGL_NO_CONTEXT,
+            intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, EGL14.EGL_NONE), 0
+        ) else EGL14.EGL_NO_CONTEXT
+        clientVersion = if (es3 != EGL14.EGL_NO_CONTEXT) 3 else 2
+        context = if (clientVersion == 3) es3 else EGL14.eglCreateContext(
             display, config, EGL14.EGL_NO_CONTEXT,
             intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0
         )

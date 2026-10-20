@@ -2,5 +2,16 @@
 <resources>
     <style name="Theme.AirPlayServer" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowAnimationStyle">@style/Animation.AirPlayServer.Tv</item>
+    </style>
+
+    <!-- a short fade instead of the system's app-launch zoom -->
+    <style name="Animation.AirPlayServer.Tv" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/tv_window_in</item>
+        <item name="android:activityOpenExitAnimation">@anim/tv_window_hold</item>
+        <item name="android:taskOpenEnterAnimation">@anim/tv_window_in</item>
+        <item name="android:taskOpenExitAnimation">@anim/tv_window_hold</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/tv_window_in</item>
+        <item name="android:taskToFrontExitAnimation">@anim/tv_window_hold</item>
     </style>
 </resources>

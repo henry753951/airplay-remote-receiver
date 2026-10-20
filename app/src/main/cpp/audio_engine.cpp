@@ -139,6 +139,7 @@ struct AudioEngine {
             }
         }
 
+        if (mOutput) mOutput->tuneBuffer();
         const int ci = ctIndex(ct);
         const CodecFormat wantConfig = ci >= 0 ? mQueued[ci].load(std::memory_order_acquire) : CodecFormat{};
         // transient codec-service failure does not mute entire session
