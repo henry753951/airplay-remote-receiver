@@ -2,9 +2,8 @@
 
 # AirPlay & Remote Receiver
 
-An AirPlay receiver for Android TV with built-in Apple TV Remote support.
-Mirror your iPhone, iPad or Mac, stream audio, and control your TV from iPhone
-Control Center. A simple TV interface keeps pairing and settings close at hand.
+Mirror your iPhone, iPad or Mac to Android TV, stream audio, and control your TV
+with the Apple TV Remote in iPhone Control Center.
 
 [![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
@@ -15,67 +14,56 @@ Control Center. A simple TV interface keeps pairing and settings close at hand.
 
 ## Features
 
-- Screen mirroring and audio reception from Apple devices.
-- iPhone Control Center Apple TV Remote reception with authenticated pairing.
-- One TV name for casting and remote control; no companion phone app required.
-- Mac mirroring or extended desktop, when supported by the sender.
-- A restrained TV interface with visible D-pad focus and short transitions.
-- English and Traditional Chinese UI, including a full-screen pairing code.
-- Background reception and optional startup after boot.
-- Optional foreground activation and display wake on connection, subject to firmware.
-- Categorized settings for picture, sound, remote control and background operation.
-- Source-driven color range by default, manual full/limited overrides and a local grayscale pattern.
-- Hardware decoding with configurable resolution, frame rate and audio buffering.
+- AirPlay screen mirroring and audio streaming.
+- Apple TV Remote support without an additional iPhone app.
+- Mac extended desktop, when supported by the sender.
+- A TV interface with clear remote focus, smooth transitions and on-screen pairing.
+- English and Traditional Chinese.
+- One TV name for casting and remote control.
+- Background reception, optional startup at boot and supported display wake.
+- Picture, audio, remote control and power settings.
 
 ## Requirements
 
-Android 8.0 / API 26 or newer, an `armeabi-v7a` device, and a shared local network
-that permits multicast discovery. This release targets 32-bit ARM; other ABIs
-are not included. Performance, wake behavior and supported codecs depend on the
-device firmware and sender. DRM-protected video is not supported.
+- Android 8.0 / API 26 or newer.
+- ARM 32-bit (`armeabi-v7a`).
+- The TV and Apple device connected to the same network, with device discovery allowed.
 
-## Install and connect
+## Get started
 
-1. Install the signed APK from **Releases** and open **AirPlay & Remote Receiver** on the TV.
-2. Allow the requested network/background permissions and review receiver settings.
-3. Keep PIN authentication enabled. On your iPhone or iPad, choose **Control Center →
-   Screen Mirroring → AirPlay & Remote Receiver**, then enter the code shown on the TV.
-4. On Mac, use **Control Center → Screen Mirroring**. To extend the desktop, open
-   **System Settings → Displays** and choose the extended-display mode if offered.
+1. Install the signed APK from [Releases](https://github.com/henry753951/airplay-remote-receiver/releases) and open **AirPlay & Remote Receiver** on the TV.
+2. Choose a TV name in **Settings** and complete the on-screen permission prompts.
+3. On iPhone or iPad, open **Control Center → Screen Mirroring** and choose your TV.
+4. Enter the pairing code shown on the TV.
 
-The receiver can remain in the background. Standby reception requires the TV to
-keep Android and networking alive; fully powered-off or unplugged TVs cannot receive.
-Launch-on-connect may wake the display before PIN verification.
+On Mac, choose the TV in **Control Center → Screen Mirroring**. For an extended
+desktop, open **System Settings → Displays** and select the extended-display mode
+if available.
 
-### iPhone remote
+### Use iPhone as a remote
 
-Open **Control Center → Apple TV Remote**, select the same TV name and enter the
-remote pairing code shown on the TV. AirPlay and Remote authenticate separately.
+Open **Control Center → Apple TV Remote**, choose your TV and enter its pairing code.
+Complete the TV's control authorization when prompted. Some TVs require debugging
+to be enabled in developer settings before remote navigation is available.
+
 For arrow buttons, enable **Settings → Accessibility → Apple TV Remote → Directional
-Buttons** on the iPhone ([Apple guide](https://support.apple.com/en-gb/guide/iphone/iph2ec3a3aa6/ios); availability depends on iOS).
+Buttons** on iPhone. Options vary by iOS version; see [Apple's guide](https://support.apple.com/en-gb/guide/iphone/iph2ec3a3aa6/ios).
 
-Remote navigation requires a TV input channel. The included local ADB driver
-connects only to loopback and needs developer debugging and a one-time TV trust
-prompt. The app does not enable debugging or change system security settings.
-An optional accessibility service is available through Android settings; capabilities
-vary by firmware and it is not equivalent to privileged input injection.
+## Settings
 
-### Background and power
+- **Picture:** resolution, frame rate and color options.
+- **Audio:** volume and buffering.
+- **Remote:** pairing and TV control.
+- **Power:** background reception, startup and standby preferences.
 
-**Keep available in standby** holds one shared partial CPU wake lock for both
-receivers. **Eco** releases it when no client is connected; firmware may suspend
-network discovery or delay wake. Neither mode can receive with mains power removed.
-Video decoder and GL resources are released after mirroring ends. Actual standby
-power savings require measurement on the target TV.
+## Compatibility
 
-### Picture calibration
+Playback quality, supported codecs and remote features vary by TV firmware and
+Apple device version. Some TVs may not reproduce near-black or near-white shades
+correctly during mirroring. DRM-protected video is unsupported.
 
-Color range defaults to **Auto**, leaving it to stream metadata and the decoder.
-Full/limited overrides are troubleshooting controls, not quality enhancements.
-Use the local grayscale page as a TV baseline and cast the bundled
-[comparison page](docs/grayscale.html) from a browser. AirPlay mirroring is compressed; this app cannot restore detail already
-lost by the sender. Decoder metadata is logged when the output format changes.
-See [MediaFormat color keys](https://developer.android.com/reference/android/media/MediaFormat).
+Background reception and display wake require a TV that keeps networking available
+in standby. Reception is unavailable when the TV is fully powered off or unplugged.
 
 ## Build
 
@@ -107,16 +95,6 @@ release key before installation, or use `assembleDebug` for development.
 Complete release source archives include the pinned native dependencies and can
 be built with the same Rust and Gradle commands. Git is required to apply the included patches.
 See [release instructions](docs/RELEASING.md).
-
-## Troubleshooting
-
-If the receiver is missing, check network permissions, multicast filtering and
-guest/client isolation. If video stutters, reduce resolution or frame rate before
-changing decoder options. If standby reception stops, review the TV's network
-standby and background-execution settings. Firmware may enforce deeper sleep.
-
-Some TV decoders may clip near-black or near-white shades during mirroring.
-Color-range overrides may not resolve this behavior on every device.
 
 ## License and credits
 
