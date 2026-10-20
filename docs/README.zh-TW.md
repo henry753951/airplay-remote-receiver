@@ -3,7 +3,7 @@
 在同一個 Android TV App 接收 AirPlay 與 iPhone 內建 Apple TV 遙控器。
 共用電視名稱、簡約介面與背景服務，提供繁體中文／英文及分層設定。
 
-[下載 APK](https://github.com/henry753951/airplay-remote-receiver/releases/latest) · [English](../README.md)
+[下載 APK](https://github.com/henry753951/airplay-remote-receiver/releases) · [English](../README.md)
 
 ## 使用方式
 
