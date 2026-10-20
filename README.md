@@ -8,7 +8,8 @@ with the Apple TV Remote in iPhone Control Center.
 [![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download APK · v0.2.0-rc7](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc7)** ·
+**[Download APK · v0.2.0](https://github.com/henry753951/airplay-remote-receiver/releases/download/v0.2.0/airplay-remote-receiver-0.2.0-armv7.apk)** ·
+[Release notes](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0) ·
 [All releases](https://github.com/henry753951/airplay-remote-receiver/releases) ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 
@@ -22,6 +23,13 @@ with the Apple TV Remote in iPhone Control Center.
 - One TV name for casting and remote control.
 - Background reception, optional startup at boot and supported display wake.
 - Picture, audio, remote control and power settings.
+
+## Downloads
+
+**0.2.0** is the current stable release. [Releases](https://github.com/henry753951/airplay-remote-receiver/releases/latest)
+provides the signed ARMv7 APK, a complete source archive including native dependencies,
+and SHA-256 checksums. Update an existing installation with the APK to retain settings
+and paired controllers; updates require the same application ID and signing key.
 
 ## Requirements
 

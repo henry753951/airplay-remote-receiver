@@ -23,3 +23,8 @@ Use **AirPlay & Remote Receiver** in release titles and
 should describe the version's features, requirements and known limitations.
 Preserve historical tags, signing identities and the features actually present
 in each version.
+
+Stable releases use an unsuffixed version such as `0.2.0` in the APK, tag and
+download filenames. Update both READMEs to link to that version. Publish the
+GitHub release with prerelease disabled and mark it as Latest; do not rename an
+older APK or move a historical tag to represent a new version.
