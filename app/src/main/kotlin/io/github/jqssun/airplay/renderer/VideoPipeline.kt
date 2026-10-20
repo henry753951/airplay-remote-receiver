@@ -216,6 +216,8 @@ class VideoPipeline {
         }
         egl = null
         window = EGL14.EGL_NO_SURFACE
+        hasFrame = false
+        frameAvailable = false
     }
 
     companion object {

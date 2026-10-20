@@ -6,3 +6,7 @@
 
 # Keep NativeBridge native methods
 -keep class io.github.jqssun.airplay.bridge.NativeBridge { *; }
+
+-keep class com.corvofeng.fakeatv.AtvNative** { *; }
+-keep class * implements com.corvofeng.fakeatv.AtvNative$Callback { *; }
+-keep class com.corvofeng.fakeatv.PersistentInput { *; }

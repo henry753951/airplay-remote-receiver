@@ -1,4 +1,4 @@
-# Contributing to AirPlay TV
+# Contributing to AirPlay & Remote Receiver
 
 Open an issue before substantial changes. Keep pull requests focused and include
 the Android version, CPU ABI, reproduction steps, expected behavior and relevant

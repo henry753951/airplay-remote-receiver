@@ -53,6 +53,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.corvofeng.fakeatv.RemoteState
 import io.github.jqssun.airplay.Prefs
 import io.github.jqssun.airplay.R
 import io.github.jqssun.airplay.service.AirPlayService.ServerState
@@ -104,6 +105,17 @@ fun MainScreen(
     var tab by remember { mutableStateOf(Tab.OVERVIEW) }
     var fullscreen by remember { mutableStateOf(false) }
     val pin by viewModel.pinCode.collectAsState()
+    val remotePin by RemoteState.pin.collectAsState()
+    // one pairing screen at a time, shared by AirPlay and the Apple TV Remote
+    val tvPins: @Composable () -> Unit = {
+        TvPinOverlays(
+            airPlayPin = pin, remotePin = remotePin,
+            airPlaySucceeded = { viewModel.pairingSucceeded() },
+            remoteSucceeded = { RemoteState.paired.value },
+            onDismissAirPlay = { viewModel.dismissPin() },
+            onDismissRemote = { RemoteState.dismissPin() }
+        )
+    }
     val connections by viewModel.connectionCount.collectAsState()
     val audioOnly by viewModel.audioOnly.collectAsState()
     val videoPlaybackActive by viewModel.videoPlaybackActive.collectAsState()
@@ -123,10 +135,10 @@ fun MainScreen(
 
     // fullscreen only once mirroring reports a size: connections rise before the kind is known
     var prevMirroringActive by remember { mutableStateOf(false) }
-    LaunchedEffect(mirroringActive, audioOnly, videoPlaybackActive, pin) {
+    LaunchedEffect(mirroringActive, audioOnly, videoPlaybackActive, pin, remotePin) {
         val justStarted = !prevMirroringActive && mirroringActive
         prevMirroringActive = mirroringActive
-        if (justStarted && !audioOnly && !videoPlaybackActive && autoFullscreen && pin == null) {
+        if (justStarted && !audioOnly && !videoPlaybackActive && autoFullscreen && pin == null && remotePin == null) {
             fullscreen = true
         }
     }
@@ -233,7 +245,8 @@ fun MainScreen(
         val videoLocation by viewModel.videoLocation.collectAsState()
         val speed by viewModel.videoSpeed.collectAsState()
         val isPipSupported = remember {
-            context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+                !context.isTvDevice()
         }
         var showSpeedSelector by remember { mutableStateOf(false) }
         BackHandler { viewModel.stopVideoPlayback() }
@@ -485,6 +498,7 @@ fun MainScreen(
                 onDismiss = { showSpeedSelector = false }
             )
         }
+        if (isTv()) tvPins()
         return
     }
 
@@ -508,8 +522,8 @@ fun MainScreen(
     }
 
     // exit fullscreen while a pin is being shown so the dialog isn't covered
-    LaunchedEffect(pin) {
-        if (pin != null) fullscreen = false
+    LaunchedEffect(pin, remotePin) {
+        if (pin != null || remotePin != null) fullscreen = false
     }
 
     if (fullscreen) {
@@ -522,47 +536,19 @@ fun MainScreen(
         )
     } else if (isTv()) {
         var tvPage by rememberSaveable { mutableStateOf(TvPage.HOME) }
-        var tvSettingsIndex by rememberSaveable { mutableIntStateOf(0) }
-        var tvBackFromSettings by remember { mutableStateOf(false) }
         Surface(color = TvBg, contentColor = TvText) {
-            when (tvPage) {
-                TvPage.HOME -> if (!mirroringActive && !audioOnly) {
-                    TvIdleScreen(
-                        viewModel, onLocalNetwork,
-                        onSettings = { tvPage = TvPage.SETTINGS },
-                        focusSettings = tvBackFromSettings
+            TvRouter(
+                viewModel, tvPage, onPage = { tvPage = it },
+                idle = !mirroringActive && !audioOnly,
+                onLocalNetwork = onLocalNetwork
+            ) { onSettings, focusSettings ->
+                Box(Modifier.fillMaxSize().padding(32.dp)) {
+                    OverviewContent(
+                        viewModel, video,
+                        onFullscreen = { fullscreen = true }, onPip = onPip, onLocalNetwork = onLocalNetwork,
+                        showAudioMode = audioOnly,
+                        onSettings = onSettings, focusSettings = focusSettings
                     )
-                } else {
-                    Box(Modifier.fillMaxSize().padding(32.dp)) {
-                        OverviewContent(
-                            viewModel, video,
-                            onFullscreen = { fullscreen = true }, onPip = onPip, onLocalNetwork = onLocalNetwork,
-                            showAudioMode = audioOnly
-                        )
-                        IconButton(
-                            onClick = { tvPage = TvPage.SETTINGS },
-                            modifier = Modifier.align(Alignment.TopEnd).dpadFocus()
-                        ) {
-                            Icon(Icons.Default.Settings, stringResource(R.string.tv_settings), tint = Color(0xFFB0B0B8))
-                        }
-                    }
-                }
-                TvPage.SETTINGS -> TvSettingsScreen(
-                    viewModel,
-                    focusIndex = tvSettingsIndex,
-                    onFocusIndex = { tvSettingsIndex = it },
-                    onBack = {
-                        tvBackFromSettings = true
-                        tvPage = TvPage.HOME
-                    },
-                    onAdvanced = { tvPage = TvPage.ADVANCED },
-                    onLogs = { tvPage = TvPage.LOGS }
-                )
-                TvPage.ADVANCED -> TvSubPage(stringResource(R.string.tv_advanced), onBack = { tvPage = TvPage.SETTINGS }) {
-                    SettingsScreen(viewModel)
-                }
-                TvPage.LOGS -> TvSubPage(stringResource(R.string.tab_logs), onBack = { tvPage = TvPage.SETTINGS }) {
-                    LogsScreen(viewModel)
                 }
             }
         }
@@ -601,7 +587,7 @@ fun MainScreen(
 
     // pin dialog
     if (isTv()) {
-        TvPinOverlay(pin, connections, onDismiss = { viewModel.dismissPin() })
+        tvPins()
     } else if (pin != null) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissPin() },
@@ -649,7 +635,9 @@ private fun OverviewContent(
     onFullscreen: () -> Unit,
     onPip: () -> Unit,
     onLocalNetwork: () -> Unit,
-    showAudioMode: Boolean = false
+    showAudioMode: Boolean = false,
+    onSettings: (() -> Unit)? = null,
+    focusSettings: Boolean = false
 ) {
     val state by viewModel.serverState.collectAsState()
     val localNetwork by viewModel.localNetwork.collectAsState()
@@ -664,8 +652,9 @@ private fun OverviewContent(
     val debugInfo by viewModel.debugInfo.collectAsState()
     val tv = isTv()
     val startFocus = remember { FocusRequester() }
+    val settingsFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        if (tv) startFocus.requestFocus()
+        if (tv) (if (focusSettings && onSettings != null) settingsFocus else startFocus).requestFocusUntilLanded()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -715,18 +704,32 @@ private fun OverviewContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
-                if (state == ServerState.RUNNING && mirroringActive) {
-                    Row(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+            }
+            val showFullscreen = state == ServerState.RUNNING && mirroringActive
+            if (showFullscreen || onSettings != null) {
+                // one row inside the rounded frame, so nothing hangs past its corner
+                Row(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
+                    if (showFullscreen && !tv) {
                         IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
                             Icon(
                                 painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
                         }
-                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus()) {
+                    }
+                    if (showFullscreen) {
+                        IconButton(onClick = onFullscreen, modifier = Modifier.dpadFocus(CircleShape)) {
                             Icon(
                                 Icons.Default.Fullscreen, contentDescription = stringResource(R.string.cd_fullscreen),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                    if (onSettings != null) {
+                        IconButton(onClick = onSettings, modifier = Modifier.focusRequester(settingsFocus).dpadFocus(CircleShape)) {
+                            Icon(
+                                Icons.Default.Settings, contentDescription = stringResource(R.string.tv_settings),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                             )
                         }
                     }
@@ -855,11 +858,13 @@ private fun FullscreenVideo(
             modifier = Modifier.align(Alignment.TopEnd)
         ) {
             Row(modifier = Modifier.padding(8.dp)) {
-                IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
-                    Icon(
-                        painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
-                        tint = Color.White.copy(alpha = 0.7f)
-                    )
+                if (!isTv()) {
+                    IconButton(onClick = onPip, modifier = Modifier.dpadFocus()) {
+                        Icon(
+                            painterResource(R.drawable.ic_pip), contentDescription = stringResource(R.string.cd_pip),
+                            tint = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
                 }
                 IconButton(onClick = onExitFullscreen, modifier = Modifier.dpadFocus()) {
                     Icon(

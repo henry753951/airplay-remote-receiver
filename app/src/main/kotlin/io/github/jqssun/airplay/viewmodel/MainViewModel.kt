@@ -81,6 +81,7 @@ class MainViewModel @Inject constructor(app: Application) : AndroidViewModel(app
     private val prefs = app.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
     private val logFile = File(app.filesDir, "airplay_logs.txt")
     private var service: AirPlayService? = null
+    fun pairingSucceeded(): Boolean = service?.pairingSucceeded == true
     val dacpPlayer: Player? get() = service?.dacpPlayer
 
     fun audioScanBegin(forward: Boolean) {
