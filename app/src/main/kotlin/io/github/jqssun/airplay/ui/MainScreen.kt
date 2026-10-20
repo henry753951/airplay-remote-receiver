@@ -560,13 +560,18 @@ fun MainScreen(
                 covered = castStage?.visible == true,
                 onLocalNetwork = onLocalNetwork
             ) { onSettings, focusSettings ->
-                Box(Modifier.fillMaxSize().padding(32.dp)) {
-                    OverviewContent(
-                        viewModel, video,
-                        onFullscreen = { fullscreen = true }, onPip = onPip, onLocalNetwork = onLocalNetwork,
-                        showAudioMode = audioOnly,
-                        onSettings = onSettings, focusSettings = focusSettings
-                    )
+                if (audioOnly && connections > 0) {
+                    // music and podcasts get the TV's own now-playing screen, not the phone layout
+                    TvNowPlaying(viewModel, onSettings, focusSettings)
+                } else {
+                    Box(Modifier.fillMaxSize().padding(32.dp)) {
+                        OverviewContent(
+                            viewModel, video,
+                            onFullscreen = { fullscreen = true }, onPip = onPip, onLocalNetwork = onLocalNetwork,
+                            showAudioMode = audioOnly,
+                            onSettings = onSettings, focusSettings = focusSettings
+                        )
+                    }
                 }
             }
         }

@@ -612,14 +612,14 @@ private fun TvGuidePage(
                 .weight(1f - TV_ART_WEIGHT)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 64.dp, bottom = 48.dp, end = 40.dp)
+                .padding(top = 48.dp, bottom = 32.dp, end = 40.dp)
         ) {
             Text(title, color = TvText, fontSize = 36.sp, lineHeight = 44.sp, fontWeight = FontWeight.Light)
             Spacer(Modifier.height(12.dp))
             Text(lead, color = TvMuted, fontSize = 18.sp, lineHeight = 27.sp)
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(20.dp))
             steps.forEachIndexed { i, step ->
-                Row(Modifier.padding(bottom = 16.dp)) {
+                Row(Modifier.padding(bottom = 12.dp)) {
                     Box(
                         Modifier.size(30.dp).clip(CircleShape).border(1.5.dp, TvText.copy(alpha = 0.5f), CircleShape),
                         contentAlignment = Alignment.Center
@@ -627,7 +627,7 @@ private fun TvGuidePage(
                         Text("${i + 1}", color = TvText, fontSize = 15.sp)
                     }
                     Spacer(Modifier.width(18.dp))
-                    Text(step, color = TvText, fontSize = 19.sp, lineHeight = 28.sp, modifier = Modifier.padding(top = 1.dp))
+                    Text(step, color = TvText, fontSize = 18.sp, lineHeight = 26.sp, modifier = Modifier.padding(top = 1.dp))
                 }
             }
             if (allActions.isNotEmpty()) {
