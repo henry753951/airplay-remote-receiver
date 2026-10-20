@@ -1,9 +1,10 @@
 # AirPlay & Remote Receiver
 
-在同一個 Android TV App 接收 AirPlay 與 iPhone 內建 Apple TV 遙控器。
-共用電視名稱、簡約介面與背景服務，提供繁體中文／英文及分層設定。
+讓 Android TV 接收 AirPlay 投屏與音訊，並透過 iPhone 控制中心內建的 Apple TV 遙控器操作電視。
+簡約的電視介面提供清楚的配對流程、繁體中文／英文與分層設定；投屏與遙控共用同一個電視名稱。
 
-[下載 APK](https://github.com/henry753951/airplay-remote-receiver/releases) · [English](../README.md)
+[下載 APK · v0.2.0-rc4](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc4) ·
+[所有版本](https://github.com/henry753951/airplay-remote-receiver/releases) · [English](../README.md)
 
 ## 使用方式
 
@@ -36,17 +37,12 @@ App 不會自行開啟偵錯或修改系統安全設定。也提供選用的系�
 本機灰階測試頁可與瀏覽器投屏的[同色階頁面](grayscale.html)比對，不能證明投屏無壓縮，也無法補回來源壓縮損失。
 解碼器輸出色彩資訊會記錄於診斷紀錄。
 
-## 從兩個 App 升級
-
-使用相同簽署金鑰可更新 AirPlay & Remote Receiver 並保留其設定。原 Remote TV 屬於另一個 Android 沙箱，
-配對資料及偵錯授權無法自動搬移；請先完成整合版配對與授權，驗證後再停止或移除獨立 Remote TV，
-避免重複接收器。名稱只需設定一次，兩個接收功能同步使用。
-
 ## 相容性
 
 Android 8.0／API 26 以上；本版僅提供 ARM 32 位元 `armeabi-v7a`。
 解析度、幀率、硬體解碼、聲音延遲可調整。受 DRM 保護的影片不支援。
-此專案不保證所有 Android TV 韌體與 Apple 裝置版本皆相容。
+相容性依 Android TV 韌體與 Apple 裝置版本而異。部分電視解碼器在鏡像時可能截斷接近黑色或白色的灰階，
+色彩範圍設定不一定能改善此情況。
 
 ## 自行建置
 

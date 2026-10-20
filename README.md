@@ -2,25 +2,26 @@
 
 # AirPlay & Remote Receiver
 
-AirPlay and Apple TV Remote reception in one Android TV app. Mirror your iPhone,
-iPad or Mac, then navigate the TV with the built-in iPhone remote. Both receivers
-share a name, a restrained TV interface and one background-service lifecycle.
+An AirPlay receiver for Android TV with built-in Apple TV Remote support.
+Mirror your iPhone, iPad or Mac, stream audio, and control your TV from iPhone
+Control Center. A simple TV interface keeps pairing and settings close at hand.
 
 [![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download](https://github.com/henry753951/airplay-remote-receiver/releases)** ·
+**[Download APK · v0.2.0-rc4](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0-rc4)** ·
+[All releases](https://github.com/henry753951/airplay-remote-receiver/releases) ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 
 ## Features
 
 - Screen mirroring and audio reception from Apple devices.
 - iPhone Control Center Apple TV Remote reception with authenticated pairing.
-- One TV name and one APK; no companion phone app required.
+- One TV name for casting and remote control; no companion phone app required.
 - Mac mirroring or extended desktop, when supported by the sender.
 - A restrained TV interface with visible D-pad focus and short transitions.
 - English and Traditional Chinese UI, including a full-screen pairing code.
-- Foreground background reception and optional startup after boot.
+- Background reception and optional startup after boot.
 - Optional foreground activation and display wake on connection, subject to firmware.
 - Categorized settings for picture, sound, remote control and background operation.
 - Source-driven color range by default, manual full/limited overrides and a local grayscale pattern.
@@ -70,20 +71,11 @@ power savings require measurement on the target TV.
 ### Picture calibration
 
 Color range defaults to **Auto**, leaving it to stream metadata and the decoder.
-The receiver previously coupled SDR compatibility to a limited-range override.
 Full/limited overrides are troubleshooting controls, not quality enhancements.
 Use the local grayscale page as a TV baseline and cast the bundled
 [comparison page](docs/grayscale.html) from a browser. AirPlay mirroring is compressed; this app cannot restore detail already
 lost by the sender. Decoder metadata is logged when the output format changes.
 See [MediaFormat color keys](https://developer.android.com/reference/android/media/MediaFormat).
-
-### Upgrading from separate apps
-
-The combined APK updates AirPlay & Remote Receiver when signed with the same key. Standalone
-Remote TV has a separate Android sandbox: it cannot automatically transfer keys,
-paired controllers or debugging trust. Pair and authorize the combined app, verify
-it, then stop/uninstall the standalone Remote TV receiver to avoid duplicate entries.
-Existing AirPlay settings are retained; the name is the single source for both receivers.
 
 ## Build
 
@@ -122,6 +114,9 @@ If the receiver is missing, check network permissions, multicast filtering and
 guest/client isolation. If video stutters, reduce resolution or frame rate before
 changing decoder options. If standby reception stops, review the TV's network
 standby and background-execution settings. Firmware may enforce deeper sleep.
+
+Some TV decoders may clip near-black or near-white shades during mirroring.
+Color-range overrides may not resolve this behavior on every device.
 
 ## License and credits
 

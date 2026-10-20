@@ -17,3 +17,10 @@
 CI artifacts are unsigned build outputs for development. The signed APK attached
 to a GitHub release is the installable distribution. Self-built APKs use your own
 signing identity and may not update an APK signed by another key.
+
+Use **AirPlay & Remote Receiver** in release titles and
+`airplay-remote-receiver-<version>-<artifact>` for download filenames. Release notes
+should describe the version's features, requirements and known limitations.
+Keep local deployment notes and development handoffs out of public release text.
+Preserve historical tags, signing identities and the features actually present
+in each version.
