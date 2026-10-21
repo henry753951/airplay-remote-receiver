@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AirPlay &amp; Remote Receiver</string>
+    <string name="app_name">Android TV AirPlay Hub</string>
     <string name="tv_settings">設定</string>
     <string name="tv_now_playing">正在播放</string>
     <string name="tv_cd_previous">上一首</string>
@@ -292,4 +292,31 @@
     <string name="accessibility_service_description">讓已配對的 Apple TV 遙控器操作電視。</string>
     <string name="btn_disconnect">中斷投放</string>
     <string name="tv_scroll_hint">使用上下鍵捲動說明。</string>
+
+    <!-- HomePod output -->
+    <string name="speaker_title">HomePod 傳聲</string>
+    <string name="speaker_home_sub">測試喇叭與傳送 App 聲音</string>
+    <string name="speaker_intro">實驗功能・將電視音訊傳到 AirPlay 喇叭，包含 HomePod mini。請先播放小音量測試音。</string>
+    <string name="speaker_limit">App 傳聲需 Android 10 以上、音訊權限與系統擷取授權。播放器可以禁止擷取。本版不會自動靜音或同步電視喇叭，也尚未提供低音分頻。</string>
+    <string name="speaker_notification">喇叭傳送工作階段進行中，可開啟 App 查看狀態或停止。</string>
+    <string name="speaker_stop">停止傳送</string>
+    <string name="speaker_idle">請選擇喇叭。</string>
+    <string name="speaker_connecting">正在連線至 %1$s…</string>
+    <string name="speaker_sending_tone">正在傳送測試音至 %1$s，請確認喇叭是否出聲。</string>
+    <string name="speaker_sending_audio">正在傳送 App 音訊至 %1$s，請開啟允許音訊擷取的播放器。</string>
+    <string name="speaker_failed">無法開始或傳送已中斷。請檢查喇叭存取設定、Wi-Fi 與擷取授權後重試。</string>
+    <string name="speaker_scan">尋找喇叭／重新整理</string>
+    <string name="speaker_no_devices">尚未找到喇叭，也可以輸入喇叭的 IPv4 位址與連接埠。</string>
+    <string name="speaker_ip">喇叭 IPv4 位址</string>
+    <string name="speaker_port">連接埠</string>
+    <string name="speaker_test">播放測試音</string>
+    <string name="speaker_capture">傳送 App 聲音</string>
+    <string name="speaker_quieter">音量 −</string>
+    <string name="speaker_louder">音量 +</string>
+    <string name="speaker_volume">%1$d%%</string>
+    <string name="speaker_setup">電視與喇叭需在同一區域網路；請在「家庭」App 允許此網路存取喇叭。目前不支援密碼／PIN 配對、立體聲群組與精確影音同步。來源音訊只保留於記憶體，不會存檔。</string>
+    <string name="speaker_cancelled">已取消擷取授權，尚未開始擷取音訊。</string>
+    <string name="speaker_permission_denied">擷取 App 播放音訊需要音訊權限，不會錄製麥克風。</string>
+    <string name="speaker_capture_unavailable">這台電視未提供播放擷取，請先測試喇叭測試音。</string>
+    <string name="speaker_scan_error">無法搜尋喇叭，請檢查區域網路權限或手動輸入 IPv4 位址。</string>
 </resources>

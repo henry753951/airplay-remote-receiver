@@ -89,6 +89,7 @@ import kotlinx.coroutines.delay
 
 private enum class Tab(val labelRes: Int, val icon: ImageVector) {
     OVERVIEW(R.string.tab_overview, Icons.Default.Cast),
+    SPEAKERS(R.string.speaker_title, Icons.AutoMirrored.Rounded.VolumeUp),
     LOGS(R.string.tab_logs, Icons.AutoMirrored.Filled.Article),
     SETTINGS(R.string.tab_settings, Icons.Default.Settings)
 }
@@ -649,6 +650,7 @@ private fun TabContent(
             onFullscreen = onFullscreen, onPip = onPip, onLocalNetwork = onLocalNetwork, showAudioMode = showAudioMode
         )
         Tab.LOGS -> LogsScreen(viewModel)
+        Tab.SPEAKERS -> HomePodScreen(onLocalNetwork)
         Tab.SETTINGS -> SettingsScreen(viewModel)
     }
 }

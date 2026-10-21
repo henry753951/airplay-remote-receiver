@@ -1,4 +1,4 @@
-# Releasing AirPlay & Remote Receiver
+# Releasing Android TV AirPlay Hub
 
 1. Update the Android version name and version code. Run Rust protocol tests, Android unit tests and all CI checks.
    Build `scripts/build-remote.sh` before Gradle; include `remote/` and its MIT license
@@ -18,8 +18,9 @@ CI artifacts are unsigned build outputs for development. The signed APK attached
 to a GitHub release is the installable distribution. Self-built APKs use your own
 signing identity and may not update an APK signed by another key.
 
-Use **AirPlay & Remote Receiver** in release titles and
-`airplay-remote-receiver-<version>-<artifact>` for download filenames. Release notes
+Use **Android TV AirPlay Hub** in release titles and
+`android-tv-airplay-hub-<version>-<artifact>` for new download filenames. Keep
+historical release asset filenames unchanged. Release notes
 should describe the version's features, requirements and known limitations.
 Preserve historical tags, signing identities and the features actually present
 in each version.

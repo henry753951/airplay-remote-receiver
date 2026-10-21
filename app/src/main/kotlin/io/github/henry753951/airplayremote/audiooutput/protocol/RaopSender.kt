@@ -1,0 +1,1925 @@
+// SPDX-License-Identifier: Apache-2.0
+// Adapted from AirBridge, revision 12d4fa781b86aaac6135e9279044d8a0f81fce21.
+// Local changes: package integration, lifecycle cancellation and input validation.
+package io.github.henry753951.airplayremote.audiooutput.protocol
+
+import io.github.henry753951.airplayremote.audiooutput.protocol.AirplayCrypto.chacha20Poly1305Decrypt
+import io.github.henry753951.airplayremote.audiooutput.protocol.AirplayCrypto.chacha20Poly1305Encrypt
+import io.github.henry753951.airplayremote.audiooutput.protocol.AirplayCrypto.counterNonce8
+import io.github.henry753951.airplayremote.audiooutput.protocol.AirplayCrypto.hkdfSha512
+import io.github.henry753951.airplayremote.audiooutput.protocol.AudioMasterClock
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.Inet4Address
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.NetworkInterface
+import java.net.Socket
+import java.net.SocketTimeoutException
+import java.security.SecureRandom
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.locks.LockSupport
+import android.os.SystemClock
+
+/**
+ * AirPlay 2 realtime audio sender state machine (HomePod / Apple TV 4K / macOS).
+ * Protocol details ported from the clean-room Apache-2.0 reference.
+ */
+class RaopSender(
+    private val device: AirplayDevice,
+    private val listener: Listener
+) {
+    val deviceName: String get() = device.name
+
+    interface Listener {
+        fun onState(state: State)
+        fun onLog(message: String)
+        fun onStarted()
+        fun onStopped(reason: String?)
+    }
+
+    enum class State { IDLE, CONNECTING, PAIRING, HANDSHAKE, STREAMING, STOPPING }
+
+    companion object {
+        private const val FRAMES_PER_PACKET = 352
+        private const val RATE = 44100
+        private const val CHANNELS = 2
+        private const val BACKLOG_SIZE = 2048
+        private const val RS_TAPS = 64
+        private const val RS_PHASES = 256
+        private const val AUDIO_TX_MAX = 1024
+    }
+
+    /** Receiver buffering policy: 按预缓冲时长降序排列（UI 芯片从左到右）。 */
+    enum class LatencyMode(val frames: Int, val min: Int, val max: Int) {
+        // 弱网专用：接收端预缓冲 2 秒（1~4 秒区间）。HomePod 实测 3/4 秒会失声，2 秒最稳
+        SAFE(88200, 44100, 176400),
+        STABLE(66150, 11025, 88200),
+        LOW(11025, 4410, 44100),
+        ULTRA(4410, 2205, 22050)
+    }
+
+    private val ring = PcmRingBuffer(RATE * 3)
+    private val audioFrames = ShortArray(FRAMES_PER_PACKET * CHANNELS)
+    private val audioWire = ByteArray(2048)
+    private val writeLock = Any()
+    private val backlogLock = Any()
+    private val backlog = arrayOfNulls<ByteArray>(BACKLOG_SIZE)
+    private val backlogSeq = IntArray(BACKLOG_SIZE) { -1 }
+
+    @Volatile
+    private var running = false
+
+    @Volatile
+    private var state = State.IDLE
+
+    @Volatile
+    private var wasUserStop = false
+
+    @Volatile
+    var latencyMode = LatencyMode.STABLE
+
+    @Volatile
+    var robustMode = false
+
+    @Volatile
+    var alacOn = true
+
+    @Volatile
+    private var latencyFrames = LatencyMode.STABLE.frames
+
+    private var wallMs0 = 0L
+    private var elapsedNanos0 = 0L
+
+    private var sessionThread: Thread? = null
+    private var pacerThread: Thread? = null
+    private var syncThread: Thread? = null
+    private var feedbackThread: Thread? = null
+    private var volumeFlushThread: Thread? = null
+    private var udpControlThread: Thread? = null
+    private var udpTimingThread: Thread? = null
+    private var eventThread: Thread? = null
+
+    private var rtsp: Socket? = null
+    private var eventSock: Socket? = null
+    private var preferredLocalIp: String? = null
+    private var audioSock: DatagramSocket? = null
+    private var controlSock: DatagramSocket? = null
+    private var timingSock: DatagramSocket? = null
+    private var deviceAddress: InetAddress? = null
+    private var masterClock: AudioMasterClock? = null
+
+    // 捕获硬件实测速率（44.1kHz 域），由 AudioCapture 回调更新
+    @Volatile
+    private var captureRate = 0.0
+
+    // Session identity
+    private val fakeMac: String = run {
+        val rnd = java.security.SecureRandom()
+        val b = ByteArray(6) { (rnd.nextInt(256) and 0xFF).toByte() }
+        b.joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
+    }
+    private var sessionId = 0L
+    private var dacpId = ""
+    private var activeRemote = 0L
+    private var cseq = 0
+    private var lastCseq = 0
+    private var sessionUuid = ""
+
+    // Crypto state
+    private var controlEncrypted = false
+    private var ctrlSendCtr = 0L
+    private var ctrlRecvCtr = 0L
+    private var controlOut = ByteArray(0)
+    private var controlIn = ByteArray(0)
+    private var eventOut = ByteArray(0)
+    private var eventIn = ByteArray(0)
+    private var eventSendCtr = 0L
+    private var eventRecvCtr = 0L
+    private var eventFrameCount = 0
+    private var audioKey = ByteArray(0)
+    private var audioNonce = 0L
+    private var encryptAudio = false
+
+    // Stream state
+    private var serverPort = 0
+    private var controlPort = 0
+    private var eventPort = 0
+    private var startTs = 0L
+    private var framesSent = 0L
+    private var seq = 0
+    private var firstAudio = true
+    private var pendingVolumeDb = -1000.0
+    private var lastVolumeSentAt = 0L
+    private var volumeDirty = false
+    private val volumeLock = Any()
+    private var encBytesReceived = 0L
+    private var airplay2 = true
+    private var rtspSession = ""
+    // ALAC 压缩统计
+    private var alacBytes = 0L
+    private var alacPackets = 0L
+    private var alacVerbatim = 0L
+
+    // Plaintext RX accumulator for the (possibly encrypted) control channel
+    private val plainRxBuf = ByteArrayOutputStream()
+
+    // 接收端丢包重传统计（控制通道 0x55 请求）
+    private val lossRequests = java.util.concurrent.atomic.AtomicLong()
+    private val lossRetransmits = java.util.concurrent.atomic.AtomicLong()
+    private val lossMisses = java.util.concurrent.atomic.AtomicLong()
+    private val lossPackets = java.util.concurrent.atomic.AtomicLong()
+    private val lossThrottled = java.util.concurrent.atomic.AtomicLong()
+
+    // 极端丢包风暴时暂停冗余，降低链路负载；风暴过后自动恢复
+    @Volatile
+    private var lossStorm = false
+    // 重传回复去重与全局限速（仅控制线程访问）
+    private val lastReplyAt = LongArray(BACKLOG_SIZE)
+    private var replyWindowStart = 0L
+    private var replyWindowCount = 0
+
+    // 延时冗余：音频包/重传回复错峰补发，抗 Wi-Fi 突发丢包
+    @Volatile
+    private var adaptiveRedundancy = false
+    private class DelayedSend(
+        val data: ByteArray,
+        val sock: DatagramSocket?,
+        val addr: InetAddress?,
+        val port: Int,
+        val dueNanos: Long,
+        val usefulUntilNanos: Long
+    )
+    private val delayedLock = Any()
+    private val delayedSends = java.util.ArrayDeque<DelayedSend>()
+    private var delayedThread: Thread? = null
+    private val redSent = java.util.concurrent.atomic.AtomicLong()
+    private val redSkipped = java.util.concurrent.atomic.AtomicLong()
+
+    // 发送去阻塞：pacer 只维护节奏，UDP 实际发送交给独立线程 + 有界队列
+    private class TxItem(
+        val data: ByteArray,
+        val sock: DatagramSocket?,
+        val addr: InetAddress?,
+        val port: Int,
+        val usefulUntilNanos: Long
+    )
+    private val audioTxQueue = java.util.ArrayDeque<TxItem>()
+    private val audioTxLock = Any()
+    private val ctrlTxQueue = java.util.ArrayDeque<TxItem>()
+    private val ctrlTxLock = Any()
+    private var audioTxThread: Thread? = null
+    private var ctrlTxThread: Thread? = null
+    private val txDrops = java.util.concurrent.atomic.AtomicLong()
+
+    // Resampler state (capture rate -> 44100, windowed-sinc polyphase FIR)
+    private var rsHist = ShortArray(0)
+    private var rsHistFrames = 0
+    private var rsPos = 0.0
+    private var rsRate = 0
+    private var rsKernel = FloatArray(0)
+
+    // ------------------------------------------------------------------
+
+    fun start() {
+        stop()
+        wasUserStop = false
+        latencyFrames = latencyMode.frames
+        synchronized(volumeLock) {
+            pendingVolumeDb = -1000.0
+            volumeDirty = false
+            lastVolumeSentAt = 0L
+        }
+        rsHist = ShortArray(0)
+        rsHistFrames = 0
+        rsPos = 0.0
+        rsRate = 0
+        rsKernel = FloatArray(0)
+        captureRate = 0.0
+        adaptiveRedundancy = false
+        lossStorm = false
+        java.util.Arrays.fill(lastReplyAt, 0L)
+        running = true
+        setState(State.CONNECTING)
+        sessionThread = Thread({ runSession() }, "raop-session").also { it.start() }
+    }
+
+    fun stop() {
+        val wasRunning = running
+        wasUserStop = true
+        running = false
+        if (wasRunning && state == State.STREAMING) {
+            try {
+                val extra = if (rtspSession.isNotEmpty()) listOf("Session" to rtspSession) else emptyList()
+                val req = buildRtspRequest("TEARDOWN", rtspUri(), null, ByteArray(0), extra = extra)
+                writeControl(req)
+            } catch (_: Exception) {
+            }
+        }
+        closeAll()
+        interruptThreads()
+        setState(State.IDLE)
+    }
+
+    fun setVolume(pct: Double) {
+        val p = pct.coerceIn(0.0, 100.0)
+        val dbfs = pctToDbfs(p)
+        synchronized(volumeLock) {
+            pendingVolumeDb = dbfs
+            volumeDirty = true
+        }
+        // Socket I/O stays on the background volume-flush thread.
+    }
+
+    /** 捕获时钟锁定后由 AudioCapture 回调（44.1kHz 域速率）。 */
+    fun onCaptureRate(rate: Double) {
+        if (rate > 0.0) captureRate = rate
+    }
+
+    /** Feed captured PCM (interleaved stereo 16-bit) into the send ring. */
+    @Synchronized
+    fun pushPcm(samples: ShortArray, rate: Int) {
+        if (!running) return
+        if (rate == RATE) {
+            ring.write(samples)
+            return
+        }
+        if (rate <= 0) return
+        if (rate != rsRate) {
+            rsRate = rate
+            rsHist = ShortArray(0)
+            rsHistFrames = 0
+            rsPos = 0.0
+            rsKernel = buildResampleKernel(rate)
+        }
+        if (rsKernel.isEmpty()) return
+
+        val step = rate.toDouble() / RATE
+        val n = samples.size / 2
+        if (n <= 0) return
+        val h = rsHistFrames
+        val m = h + n
+        val out = ShortArray((n.toLong() * RATE / rate).toInt() + 64)
+        var produced = 0
+        while (produced < out.size) {
+            val i0 = rsPos.toInt()
+            if (i0 + 32 >= m) break
+            val frac = rsPos - i0
+            val phase = ((frac * (RS_PHASES - 1)).toInt()).coerceIn(0, RS_PHASES - 1)
+            val kBase = phase * RS_TAPS
+            val srcBase = i0 - 31
+            var l = 0.0
+            var r = 0.0
+            var k = kBase
+            for (t in 0 until RS_TAPS) {
+                val idx = srcBase + t
+                if (idx < 0 || idx >= m) {
+                    k++
+                    continue
+                }
+                val g = rsKernel[k++].toDouble()
+                val s = if (idx < h) idx * 2 else (idx - h) * 2
+                l += (if (idx < h) rsHist[s].toInt() else samples[s].toInt()) * g
+                r += (if (idx < h) rsHist[s + 1].toInt() else samples[s + 1].toInt()) * g
+            }
+            out[produced++] = clamp16(l)
+            out[produced++] = clamp16(r)
+            rsPos += step
+        }
+
+        // 保留下一输出仍需的尾部帧（内核左侧 -31 帧 + 未消费的未来帧），丢弃已消费的帧
+        val nextNeed = rsPos.toInt() - 31
+        val drop = if (nextNeed > 0) minOf(nextNeed, m) else 0
+        val keep = m - drop
+        if (keep > 0) {
+            val hist = ShortArray(keep * 2)
+            for (i in 0 until keep) {
+                val src = drop + i
+                val s = if (src < h) src * 2 else (src - h) * 2
+                hist[i * 2] = if (src < h) rsHist[s] else samples[s]
+                hist[i * 2 + 1] = if (src < h) rsHist[s + 1] else samples[s + 1]
+            }
+            rsHist = hist
+            rsHistFrames = keep
+        } else {
+            rsHist = ShortArray(0)
+            rsHistFrames = 0
+        }
+        rsPos -= drop
+        if (produced > 0) ring.write(out.copyOf(produced))
+    }
+
+    private fun clamp16(v: Double): Short {
+        val i = when {
+            v > 32767.0 -> 32767
+            v < -32768.0 -> -32768
+            else -> v.toInt()
+        }
+        return i.toShort()
+    }
+
+    /**
+     * 预计算 windowed-sinc 多相内核（Blackman-Harris，64 抽头 / 256 相），
+     * 相对原来的线性插值，高频衰减与混叠明显改善。
+     */
+    private fun buildResampleKernel(rate: Int): FloatArray {
+        val outRate = RATE.toDouble()
+        val inRate = rate.toDouble()
+        // 截止频率取输出奈奎斯特的 0.95，归一化到输入采样率
+        val cutoff = (outRate / 2.0 * 0.95) / inRate
+        if (cutoff <= 0.0 || cutoff >= 0.5) return FloatArray(0)
+        val table = FloatArray(RS_PHASES * RS_TAPS)
+        val half = RS_TAPS / 2.0 - 0.5
+        for (p in 0 until RS_PHASES) {
+            val f = p / (RS_PHASES - 1.0)
+            val row = p * RS_TAPS
+            var sum = 0.0
+            for (t in 0 until RS_TAPS) {
+                val dist = (t - 31) - f
+                val x = 2.0 * Math.PI * cutoff * dist
+                val sinc = if (Math.abs(dist) < 1e-9) 2.0 * cutoff else Math.sin(x) / x
+                val u = dist / half
+                val win = if (Math.abs(u) <= 1.0) {
+                    0.35875 + 0.48829 * Math.cos(Math.PI * u) +
+                        0.14128 * Math.cos(2.0 * Math.PI * u) +
+                        0.01168 * Math.cos(3.0 * Math.PI * u)
+                } else 0.0
+                val w = sinc * win
+                table[row + t] = w.toFloat()
+                sum += w
+            }
+            if (Math.abs(sum) > 1e-9) {
+                val norm = 1.0 / sum
+                for (t in 0 until RS_TAPS) table[row + t] = (table[row + t] * norm).toFloat()
+            }
+        }
+        return table
+    }
+
+    // ------------------------------------------------------------------
+    // Session
+
+    private fun runSession() {
+        var reason: String? = null
+        try {
+            if (!running) return
+            connectRtsp()
+            try {
+                runAp2()
+            } catch (e: Exception) {
+                if (!running) throw e
+                listener.onLog("AirPlay 2 会话建立失败: ${e.message}")
+                listener.onLog("回退到 AirPlay 1 模式...")
+                closeAll()
+                connectRtsp()
+                runAp1()
+            }
+            // Keep consuming control-channel responses (volume/feedback replies)
+            // until the session ends. Ignored, but the socket must be drained.
+            while (running) {
+                try {
+                    readControlResponse()
+                } catch (e: SocketTimeoutException) {
+                    // normal
+                }
+            }
+        } catch (e: Exception) {
+            reason = e.message ?: e.javaClass.simpleName
+            listener.onLog("会话失败: $reason")
+        } finally {
+            running = false
+            closeAll()
+            interruptThreads()
+            setState(State.IDLE)
+            listener.onStopped(if (reason != null && !wasUserStop) reason else null)
+        }
+    }
+
+    private fun runAp2() {
+        airplay2 = true
+        pairTransient()
+        controlEncrypted = true
+        setState(State.HANDSHAKE)
+        listener.onLog("配对完成，开始 AirPlay 2 会话")
+        ap2GetInfo()
+        ap2SetupSession()
+        openEventChannel()
+        ap2Record()
+        ap2SetupStream()
+        startStreaming()
+    }
+
+    private fun runAp1() {
+        airplay2 = false
+        controlEncrypted = false
+        encryptAudio = false
+        audioKey = ByteArray(0)
+        controlOut = ByteArray(0)
+        controlIn = ByteArray(0)
+        setState(State.HANDSHAKE)
+        listener.onLog("AirPlay 1 模式: OPTIONS/ANNOUNCE/SETUP/RECORD")
+        sendOptions()
+        sendAnnounce()
+        sendSetupAp1()
+        sendRecordAp1()
+        startStreaming()
+    }
+
+    private fun sendOptions() {
+        val req = buildRtspRequest("OPTIONS", "*", null, ByteArray(0))
+        writeControl(req)
+        checkCode(readControlResponse(expectedCseq = lastCseq), "OPTIONS")
+        listener.onLog("OPTIONS ok")
+    }
+
+    private fun sendAnnounce() {
+        val localIp = preferredLocalIp ?: "127.0.0.1"
+        val remoteIp = device.host
+        val sdp = "v=0\r\n" +
+            "o=iTunes $sessionId 0 IN IP4 $localIp\r\n" +
+            "s=iTunes\r\n" +
+            "c=IN IP4 $remoteIp\r\n" +
+            "t=0 0\r\n" +
+            "m=audio 0 RTP/AVP 96\r\n" +
+            "a=rtpmap:96 L16/44100/2\r\n" +
+            "a=fmtp:96 352 0 16 40 10 14 2 255 0 0 44100\r\n"
+        val req = buildRtspRequest("ANNOUNCE", rtspUri(), "application/sdp", sdp.toByteArray(Charsets.US_ASCII))
+        writeControl(req)
+        checkCode(readControlResponse(expectedCseq = lastCseq), "ANNOUNCE")
+        listener.onLog("ANNOUNCE ok")
+    }
+
+    private fun sendSetupAp1() {
+        val portCtl = controlSock!!.localPort
+        val portTim = timingSock!!.localPort
+        // TuneBlade's captured wire format uses camelCase timingPort; the
+        // pyatv/owntone style uses timing_port. Try both URI forms too.
+        val variants = listOf(
+            Triple(rtspUri(), "control_port=$portCtl;timing_port=$portTim", "rtsp + timing_port"),
+            Triple(rtspUri(), "control_port=$portCtl;timingPort=$portTim", "rtsp + timingPort"),
+            Triple("/$sessionId", "control_port=$portCtl;timing_port=$portTim", "path + timing_port"),
+            Triple("/$sessionId", "control_port=$portCtl;timingPort=$portTim", "path + timingPort")
+        )
+        var lastError: Exception? = null
+        for ((uri, transport, label) in variants) {
+            try {
+                listener.onLog("AP1 SETUP 尝试[$label]")
+                val req = buildRtspRequest(
+                    "SETUP", uri, null, ByteArray(0),
+                    extra = listOf("Transport" to "RTP/AVP/UDP;unicast;interleaved=0-1;mode=record;$transport")
+                )
+                writeControl(req)
+                val resp = readControlResponse(4000, lastCseq)
+                checkCode(resp, "SETUP (AP1) [$label]")
+                serverPort = 0
+                controlPort = 0
+                var timingPortRemote = 0
+                for (opt in (resp.headers["transport"] ?: "").split(';')) {
+                    val eq = opt.indexOf('=')
+                    if (eq <= 0) continue
+                    val k = opt.substring(0, eq).trim()
+                    val v = opt.substring(eq + 1).trim().toIntOrNull() ?: 0
+                    when (k) {
+                        "server_port" -> serverPort = v
+                        "control_port" -> controlPort = v
+                        "timing_port" -> timingPortRemote = v
+                    }
+                }
+                if (serverPort == 0) throw IOException("AP1 SETUP 未返回 server_port")
+                if (controlPort == 0) controlPort = serverPort
+                rtspSession = resp.headers["session"] ?: "1"
+                listener.onLog("AP1 SETUP ok [$label]: server=$serverPort control=$controlPort timing=$timingPortRemote session=$rtspSession")
+                return
+            } catch (e: SocketTimeoutException) {
+                lastError = e
+                listener.onLog("AP1 SETUP [$label] 无响应，重新连接后重试下一种变体")
+                closeAll()
+                connectRtsp()
+                sendOptions()
+                sendAnnounce()
+            } catch (e: Exception) {
+                lastError = e
+                listener.onLog("AP1 SETUP [$label] 失败: ${e.message}")
+                throw e
+            }
+        }
+        throw IOException("AP1 SETUP 无响应（已尝试 4 种变体）", lastError)
+    }
+
+    private fun sendRecordAp1() {
+        val rtpInfo = "seq=$seq;rtptime=${rtptime32()}"
+        val req = buildRtspRequest(
+            "RECORD", rtspUri(), null, ByteArray(0),
+            extra = listOf(
+                "Range" to "npt=0-",
+                "RTP-Info" to rtpInfo,
+                "Session" to rtspSession
+            )
+        )
+        writeControl(req)
+        checkCode(readControlResponse(expectedCseq = lastCseq), "RECORD (AP1)")
+        listener.onLog("RECORD ok")
+    }
+
+    private fun connectRtsp() {
+        val rnd = SecureRandom()
+        sessionId = rnd.nextInt().toLong() and 0xFFFFFFFFL
+        dacpId = java.lang.Long.toHexString(rnd.nextLong()).uppercase(Locale.US)
+        activeRemote = rnd.nextLong() and 0xFFFFFFFFL
+        sessionUuid = UUID.randomUUID().toString().uppercase(Locale.US)
+        cseq = 0
+        serverPort = 0
+        controlPort = 0
+        eventPort = 0
+        rtspSession = ""
+        encryptAudio = false
+        audioNonce = 0
+        encBytesReceived = 0
+        controlEncrypted = false
+        ctrlSendCtr = 0
+        ctrlRecvCtr = 0
+        eventSendCtr = 0
+        eventRecvCtr = 0
+        framesSent = 0
+        firstAudio = true
+        seq = rnd.nextInt(65536)
+        plainRxBuf.reset()
+
+        listener.onLog("连接 ${device.name} (${device.host}:${device.port}) ...")
+        if (!running) throw IOException("Session stopped")
+        val s = Socket()
+        rtsp = s
+        if (!running) { s.close(); throw IOException("Session stopped") }
+        s.connect(InetSocketAddress(device.host, device.port), 8000)
+        s.tcpNoDelay = true
+        s.soTimeout = 10000
+        rtsp = s
+
+        timingSock = DatagramSocket(0)
+        controlSock = DatagramSocket(0)
+        audioSock = DatagramSocket(0)
+        deviceAddress = InetAddress.getByName(device.host)
+        // Larger UDP buffers reduce drops during Wi-Fi hiccups.
+        try {
+            audioSock!!.sendBufferSize = 512 * 1024
+            controlSock!!.receiveBufferSize = 256 * 1024
+            timingSock!!.receiveBufferSize = 256 * 1024
+        } catch (_: Exception) {
+        }
+        // DSCP EF (46)：请求 Wi-Fi/AP 优先转发音频 UDP 包
+        try {
+            audioSock!!.trafficClass = 0x2E
+            controlSock!!.trafficClass = 0x2E
+            timingSock!!.trafficClass = 0x2E
+        } catch (_: Exception) {
+        }
+        wallMs0 = System.currentTimeMillis()
+        elapsedNanos0 = android.os.SystemClock.elapsedRealtimeNanos()
+        // HomePod probes the sender's UDP timing/control ports DURING SETUP;
+        // start the responders now so SETUP doesn't wait 30s and fail.
+        startUdpReaders()
+        // NTP/timing 回复也走发送队列，必须在 SETUP 前就把发送线程拉起来，
+        // 否则握手期间的 timing 探测无人应答，SETUP 会超时。
+        startTxThreads()
+        listener.onLog("TCP 已连接，开始瞬时配对")
+        val sockLocal = s.localAddress.hostAddress ?: "?"
+        val picked = pickLocalIp()
+        preferredLocalIp = picked ?: sockLocal
+        listener.onLog("本机地址: socket=$sockLocal, 选定=$preferredLocalIp")
+    }
+
+    private fun pairTransient() {
+        setState(State.PAIRING)
+        listener.onLog("POST /pair-setup (M1, transient)")
+        val m1 = Tlv8.encode(
+            listOf(
+                Tlv8.METHOD to byteArrayOf(0),
+                Tlv8.STATE to byteArrayOf(1),
+                Tlv8.FLAGS to byteArrayOf(0x10)
+            )
+        )
+        var resp = httpPost("/pair-setup", "application/octet-stream", m1)
+        checkCode(resp, "/pair-setup M1")
+        val m2 = Tlv8.decode(resp.body)
+        if (m2.containsKey(Tlv8.ERROR)) throw IOException("配对被设备拒绝 (error=${m2[Tlv8.ERROR]?.firstOrNull()})")
+        val salt = m2[Tlv8.SALT] ?: throw IOException("配对响应缺少 salt")
+        val pubB = m2[Tlv8.PUBLIC_KEY] ?: throw IOException("配对响应缺少 public key")
+
+        val srp = AirplayCrypto.SrpClient()
+        srp.start("3939")
+        if (!srp.process(salt, pubB)) throw IOException("SRP 参数校验失败")
+
+        val m3 = Tlv8.encode(
+            listOf(
+                Tlv8.STATE to byteArrayOf(3),
+                Tlv8.PUBLIC_KEY to srp.publicA(),
+                Tlv8.PROOF to srp.proofM1()
+            )
+        )
+        resp = httpPost("/pair-setup", "application/octet-stream", m3)
+        checkCode(resp, "/pair-setup M3")
+        val m4 = Tlv8.decode(resp.body)
+        if (m4.containsKey(Tlv8.ERROR)) throw IOException("配对 PIN 未被接受 (error=${m4[Tlv8.ERROR]?.firstOrNull()})")
+        val serverProof = m4[Tlv8.PROOF] ?: throw IOException("配对响应缺少服务端证明 M2")
+        if (!srp.verifyServerProof(serverProof)) throw IOException("服务端 SRP 证明校验失败")
+
+        val k = srp.sessionKey()
+        controlOut = hkdfSha512("Control-Salt", "Control-Write-Encryption-Key", k, 32)
+        controlIn = hkdfSha512("Control-Salt", "Control-Read-Encryption-Key", k, 32)
+        eventIn = hkdfSha512("Events-Salt", "Events-Write-Encryption-Key", k, 32)
+        eventOut = hkdfSha512("Events-Salt", "Events-Read-Encryption-Key", k, 32)
+        audioKey = if (k.size > 32) k.copyOfRange(0, 32) else k
+        audioNonce = 0
+        encryptAudio = true
+        listener.onLog("瞬时配对成功 (M4)")
+    }
+
+    private fun ap2GetInfo() {
+        val resp = sendAp2("GET", "/info", null, ByteArray(0))
+        checkCode(resp, "GET /info")
+        listener.onLog("GET /info ok")
+    }
+
+    private fun ap2SetupSession() {
+        // Some receivers are picky about the SETUP body fields, URI form,
+        // X-Apple-StreamID or X-Apple-HKP; try a matrix of variants.
+        data class Variant(val uri: String, val streamId: Boolean, val minimalBody: Boolean, val hkp: Int?, val label: String)
+        // Fast fallback: if the canonical variants get no reply, the receiver
+        // probably wants legacy AirPlay 1; don't burn time on more variants.
+        val variants = listOf(
+            Variant(rtspUri(), true, false, null, "完整字段 rtsp://ip/id"),
+            Variant(rtspUri(), true, true, null, "最小字段 rtsp://ip/id")
+        )
+        var lastError: Exception? = null
+        for (v in variants) {
+            try {
+                val body = if (v.minimalBody) sessionSetupBodyMinimal() else sessionSetupBody()
+                listener.onLog("SETUP session 尝试[${v.label}] ${v.uri} (${body.size} bytes)")
+                val resp = sendAp2(
+                    "SETUP", v.uri, "application/x-apple-binary-plist", body,
+                    streamId = v.streamId, hkp = v.hkp, timeoutMs = 4000
+                )
+                checkCode(resp, "SETUP session [${v.label}]")
+                val root = Bplist.decode(resp.body) as? PValue.DictV
+                eventPort = (root?.pairs?.firstOrNull { it.first == "eventPort" }?.second as? PValue.IntV)?.v?.toInt() ?: 0
+                listener.onLog("SETUP session ok [${v.label}], eventPort=$eventPort")
+                return
+            } catch (e: SocketTimeoutException) {
+                listener.onLog("SETUP [${v.label}] 无响应，连接已错位，回退 AirPlay 1")
+                throw IOException("SETUP session 无响应", e)
+            } catch (e: Exception) {
+                lastError = e
+                listener.onLog("SETUP [${v.label}] 失败: ${e.message}")
+            }
+        }
+        throw IOException("SETUP session 无响应（已尝试 ${variants.size} 种变体）", lastError)
+    }
+
+    private fun sessionSetupBody(): ByteArray {
+        return Bplist.encode(
+            PValue.DictV(
+                listOf(
+                    "deviceID" to PValue.StrV(fakeMac),
+                    "sessionUUID" to PValue.StrV(sessionUuid),
+                    "timingPort" to PValue.IntV(timingSock!!.localPort.toLong()),
+                    "timingProtocol" to PValue.StrV("NTP"),
+                    "isMultiSelectAirPlay" to PValue.True,
+                    "groupContainsGroupLeader" to PValue.False,
+                    "macAddress" to PValue.StrV(fakeMac),
+                    "model" to PValue.StrV("iPhone14,3"),
+                    "name" to PValue.StrV("Android TV AirPlay Hub"),
+                    "osBuildVersion" to PValue.StrV("20F66"),
+                    "osName" to PValue.StrV("iPhone OS"),
+                    "osVersion" to PValue.StrV("16.5"),
+                    "senderSupportsRelay" to PValue.False,
+                    "sourceVersion" to PValue.StrV("690.7.1"),
+                    "statsCollectionEnabled" to PValue.False
+                )
+            )
+        )
+    }
+
+    /** owntone-style minimal NTP session setup (works on most AirPlay 2 devices). */
+    private fun sessionSetupBodyMinimal(): ByteArray {
+        return Bplist.encode(
+            PValue.DictV(
+                listOf(
+                    "deviceID" to PValue.StrV(fakeMac),
+                    "sessionUUID" to PValue.StrV(sessionUuid),
+                    "timingPort" to PValue.IntV(timingSock!!.localPort.toLong()),
+                    "timingProtocol" to PValue.StrV("NTP")
+                )
+            )
+        )
+    }
+
+    private fun openEventChannel() {
+        if (eventPort == 0) {
+            listener.onLog("警告: 设备未提供 eventPort，继续（部分设备会拒绝）")
+            return
+        }
+        val s = Socket()
+        s.connect(InetSocketAddress(device.host, eventPort), 5000)
+        s.tcpNoDelay = true
+        s.soTimeout = 2000
+        eventSock = s
+        listener.onLog("事件通道已打开 -> ${device.host}:$eventPort")
+        eventThread = Thread({ eventLoop() }, "raop-event").also { it.start() }
+    }
+
+    private fun ap2Record() {
+        val resp = sendAp2("RECORD", rtspUri(), null, ByteArray(0))
+        if (resp.code !in 200..299) listener.onLog("RECORD 返回 ${resp.code}（继续）")
+        else listener.onLog("RECORD ok")
+    }
+
+    private fun ap2SetupStream() {
+        val stream = PValue.DictV(
+            listOf(
+                "audioFormat" to PValue.IntV(0x40000L),
+                "audioMode" to PValue.StrV("default"),
+                "controlPort" to PValue.IntV(controlSock!!.localPort.toLong()),
+                "ct" to PValue.IntV(2),
+                "isMedia" to PValue.True,
+                "latencyMax" to PValue.IntV(latencyMode.max.toLong()),
+                "latencyMin" to PValue.IntV(latencyMode.min.toLong()),
+                "shk" to PValue.DataV(audioKey),
+                "spf" to PValue.IntV(FRAMES_PER_PACKET.toLong()),
+                "sr" to PValue.IntV(RATE.toLong()),
+                "type" to PValue.IntV(0x60),
+                "supportsDynamicStreamID" to PValue.False,
+                "streamConnectionID" to PValue.IntV(sessionId)
+            )
+        )
+        val body = Bplist.encode(PValue.DictV(listOf("streams" to PValue.ArrV(listOf(stream)))))
+        val resp = sendAp2("SETUP", rtspUri(), "application/x-apple-binary-plist", body)
+        checkCode(resp, "SETUP stream")
+        val root = Bplist.decode(resp.body) as? PValue.DictV
+        val streams = root?.pairs?.firstOrNull { it.first == "streams" }?.second as? PValue.ArrV
+        val s0 = streams?.items?.firstOrNull() as? PValue.DictV
+        serverPort = (s0?.pairs?.firstOrNull { it.first == "dataPort" }?.second as? PValue.IntV)?.v?.toInt() ?: 0
+        controlPort = (s0?.pairs?.firstOrNull { it.first == "controlPort" }?.second as? PValue.IntV)?.v?.toInt() ?: serverPort
+        if (serverPort == 0) throw IOException("SETUP stream 未返回 dataPort")
+        listener.onLog("SETUP stream ok, dataPort=$serverPort controlPort=$controlPort")
+    }
+
+    private fun startStreaming() {
+        if (!running) throw IOException("Session stopped")
+        setState(State.STREAMING)
+        startTs = ntp2ts(ntpNow(), RATE)
+        framesSent = 0
+        firstAudio = true
+        // 握手期间捕获的音频是“过去时”，清空后再开始，避免开播突发追赶
+        ring.clear()
+        // P1: 静音 AudioTrack 主时钟，把发送节拍锁定到硬件时钟
+        masterClock = AudioMasterClock(RATE) { msg -> listener.onLog(msg) }
+        masterClock?.start()
+        // P2: UDP connect 降低每次发包开销；失败自动退回普通发送
+        try {
+            val addr = deviceAddress ?: InetAddress.getByName(device.host)
+            if (!audioSock!!.isConnected) {
+                audioSock!!.connect(InetSocketAddress(addr, serverPort))
+            }
+        } catch (_: Exception) {
+        }
+        sendSyncPacket(true)
+        synchronized(volumeLock) {
+            // Default to 25% on a fresh connection so users are not startled.
+            if (pendingVolumeDb <= -999.0) pendingVolumeDb = pctToDbfs(25.0)
+            volumeDirty = true
+        }
+        flushVolume()
+        startPacer()
+        startSyncTimer()
+        startFeedback()
+        startVolumeFlush()
+        startDelayedSends()
+        listener.onLog("正在推流: 44.1kHz 16bit 立体声 -> ${device.name}（预缓冲 ${latencyFrames / RATE}.${(latencyFrames % RATE) * 10 / RATE}s）")
+        listener.onLog("ALAC 压缩编码已启用（逐包自校验，失败自动回退未压缩）")
+        listener.onStarted()
+    }
+
+    private fun startVolumeFlush() {
+        volumeFlushThread = Thread({
+            while (running) {
+                try {
+                    Thread.sleep(100)
+                } catch (e: InterruptedException) {
+                    break
+                }
+                flushVolume()
+            }
+        }, "raop-volume").also { it.start() }
+    }
+
+    private fun flushVolume() {
+        val db: Double
+        synchronized(volumeLock) {
+            if (!volumeDirty) return
+            val now = System.currentTimeMillis()
+            if (now - lastVolumeSentAt < 100) return
+            volumeDirty = false
+            lastVolumeSentAt = now
+            db = pendingVolumeDb
+        }
+        try {
+            sendVolume(db)
+        } catch (e: Exception) {
+            listener.onLog("音量设置失败: ${e.javaClass.simpleName}: ${e.message}")
+            // mark dirty again so the flush thread retries
+            synchronized(volumeLock) {
+                volumeDirty = true
+            }
+        }
+    }
+
+    private fun pctToDbfs(pct: Double): Double =
+        if (pct < 0.01) -144.0 else -30.0 + 0.3 * pct
+
+    // ------------------------------------------------------------------
+    // Control channel
+
+    private fun rtspUri(): String = "rtsp://${preferredLocalIp ?: "127.0.0.1"}/$sessionId"
+
+    private fun pickLocalIp(): String? {
+        val devPrefix = device.host.substringBeforeLast('.')
+        var fallback: String? = null
+        try {
+            val nets = NetworkInterface.getNetworkInterfaces() ?: return null
+            for (n in nets) {
+                if (!n.isUp || n.isLoopback) continue
+                val addrs = n.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val a = addrs.nextElement()
+                    if (a !is Inet4Address) continue
+                    val ip = a.hostAddress ?: continue
+                    if (ip.startsWith("$devPrefix.")) return ip
+                    if (fallback == null && ip.startsWith("192.168.")) fallback = ip
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return fallback
+    }
+
+    private fun buildRtspRequest(
+        method: String,
+        uri: String,
+        contentType: String?,
+        body: ByteArray,
+        extra: List<Pair<String, String>> = emptyList(),
+        streamId: Boolean = false,
+        hkp: Int? = null
+    ): ByteArray {
+        val sb = StringBuilder()
+        lastCseq = cseq++
+        sb.append("$method $uri RTSP/1.0\r\n")
+        sb.append("CSeq: $lastCseq\r\n")
+        sb.append("User-Agent: AirPlay/550.10\r\n")
+        sb.append("DACP-ID: $dacpId\r\n")
+        sb.append("Active-Remote: $activeRemote\r\n")
+        sb.append("Client-Instance: $dacpId\r\n")
+        sb.append("X-Apple-Client-Name: Android TV AirPlay Hub\r\n")
+        if (streamId) sb.append("X-Apple-StreamID: 1\r\n")
+        if (hkp != null) sb.append("X-Apple-HKP: $hkp\r\n")
+        for ((k, v) in extra) sb.append("$k: $v\r\n")
+        if (contentType != null) sb.append("Content-Type: $contentType\r\n")
+        if (body.isNotEmpty()) sb.append("Content-Length: ${body.size}\r\n")
+        sb.append("\r\n")
+        return sb.toString().toByteArray(Charsets.US_ASCII) + body
+    }
+
+    private fun httpPost(uri: String, contentType: String?, body: ByteArray): ControlResponse {
+        val sb = StringBuilder()
+        sb.append("POST $uri HTTP/1.1\r\n")
+        lastCseq = cseq++
+        sb.append("CSeq: $lastCseq\r\n")
+        sb.append("User-Agent: AirPlay/550.10\r\n")
+        sb.append("Connection: keep-alive\r\n")
+        sb.append("X-Apple-HKP: 4\r\n")
+        sb.append("DACP-ID: $dacpId\r\n")
+        sb.append("Active-Remote: $activeRemote\r\n")
+        sb.append("Client-Instance: $dacpId\r\n")
+        sb.append("X-Apple-Client-Name: Android TV AirPlay Hub\r\n")
+        if (contentType != null) sb.append("Content-Type: $contentType\r\n")
+        sb.append("Content-Length: ${body.size}\r\n\r\n")
+        writeControl(sb.toString().toByteArray(Charsets.US_ASCII) + body)
+        return readControlResponse(expectedCseq = lastCseq)
+    }
+
+    private fun sendAp2(
+        method: String,
+        uri: String,
+        contentType: String?,
+        body: ByteArray,
+        streamId: Boolean = method == "SETUP",
+        hkp: Int? = null,
+        timeoutMs: Int = 10000
+    ): ControlResponse {
+        val req = buildRtspRequest(method, uri, contentType, body, streamId = streamId, hkp = hkp)
+        writeControl(req)
+        return readControlResponse(timeoutMs, lastCseq)
+    }
+
+    private fun sendVolume(dbfs: Double) {
+        val body = String.format(Locale.US, "volume: %.6f", dbfs).toByteArray(Charsets.US_ASCII)
+        val extra = if (rtspSession.isNotEmpty()) listOf("Session" to rtspSession) else emptyList()
+        val req = buildRtspRequest("SET_PARAMETER", rtspUri(), "text/parameters", body, extra = extra)
+        writeControl(req)
+    }
+
+    private fun sendFeedback() {
+        val sb = StringBuilder()
+        sb.append("POST /feedback RTSP/1.0\r\n")
+        sb.append("CSeq: ${cseq++}\r\n")
+        sb.append("User-Agent: AirPlay/550.10\r\n")
+        sb.append("DACP-ID: $dacpId\r\n")
+        sb.append("Active-Remote: $activeRemote\r\n")
+        sb.append("Client-Instance: $dacpId\r\n")
+        sb.append("Content-Length: 0\r\n\r\n")
+        writeControl(sb.toString().toByteArray(Charsets.US_ASCII))
+    }
+
+    private fun writeControl(data: ByteArray) {
+        synchronized(writeLock) {
+            val out = rtsp!!.getOutputStream()
+            if (controlEncrypted) {
+                var off = 0
+                while (off < data.size) {
+                    val len = minOf(1024, data.size - off)
+                    val lp = byteArrayOf((len and 0xFF).toByte(), ((len shr 8) and 0xFF).toByte())
+                    val nonce = counterNonce8(ctrlSendCtr++)
+                    val ct = chacha20Poly1305Encrypt(controlOut, nonce, data.copyOfRange(off, off + len), lp)
+                    out.write(lp)
+                    out.write(ct)
+                    off += len
+                }
+            } else {
+                out.write(data)
+            }
+            out.flush()
+        }
+    }
+
+    private class ControlResponse(
+        val code: Int,
+        val headers: Map<String, String>,
+        val body: ByteArray,
+        val statusLine: String,
+        val cseq: Int?
+    )
+
+    private fun readControlResponse(timeoutMs: Int = 10000, expectedCseq: Int? = null): ControlResponse {
+        rtsp!!.soTimeout = timeoutMs
+        try {
+            while (true) {
+                val resp = parseControlResponse()
+                if (resp != null) {
+                    if (expectedCseq != null && resp.cseq != null && resp.cseq != expectedCseq) {
+                        listener.onLog("丢弃过期响应 cseq=${resp.cseq} (期望 $expectedCseq)")
+                        continue
+                    }
+                    debugLog("readControlResponse 返回 code=${resp.code} body=${resp.body.size}B")
+                    return resp
+                }
+                try {
+                    fillPlainRx()
+                    debugLog("readControlResponse: 缓冲=${plainRxBuf.size()}B")
+                } catch (e: SocketTimeoutException) {
+                    listener.onLog("等待响应超时，已收到 $encBytesReceived 个加密字节")
+                    throw e
+                }
+            }
+        } finally {
+            rtsp!!.soTimeout = 10000
+        }
+    }
+
+    private fun fillPlainRx() {
+        if (controlEncrypted) {
+            val frame = readEncryptedFrame()
+            plainRxBuf.write(frame)
+            if (plainRxBuf.size() > 1 shl 20) throw IOException("控制通道缓冲过大")
+        } else {
+            val input = rtsp!!.getInputStream()
+            var headEnd = findHeadEnd(plainRxBuf.toByteArray())
+            if (headEnd == null) {
+                var state = headState(plainRxBuf.toByteArray())
+                while (state < 4) {
+                    val b = input.read()
+                    if (b < 0) throw IOException("控制连接被关闭")
+                    plainRxBuf.write(b)
+                    state = when {
+                        b == '\r'.code && (state == 0 || state == 2) -> state + 1
+                        b == '\n'.code && (state == 1 || state == 3) -> state + 1
+                        b == '\r'.code -> 1
+                        else -> 0
+                    }
+                    if (plainRxBuf.size() > 1 shl 20) throw IOException("控制响应过大")
+                }
+                headEnd = findHeadEnd(plainRxBuf.toByteArray()) ?: throw IOException("控制响应头不完整")
+            }
+            val contentLen = parseContentLength(
+                String(plainRxBuf.toByteArray(), 0, headEnd, Charsets.US_ASCII)
+            )
+            val total = headEnd + 4 + contentLen
+            while (plainRxBuf.size() < total) {
+                val b = input.read()
+                if (b < 0) throw IOException("控制连接被关闭")
+                plainRxBuf.write(b)
+            }
+        }
+    }
+
+    private fun readEncryptedFrame(): ByteArray {
+        val input = rtsp!!.getInputStream()
+        val lenData = readFully(input, 2)
+        encBytesReceived += 2
+        val len = (lenData[0].toInt() and 0xFF) or ((lenData[1].toInt() and 0xFF) shl 8)
+        debugLog("收到加密帧: 明文长度=$len")
+        val ct = readFully(input, len + 16)
+        encBytesReceived += len + 16
+        val nonce = counterNonce8(ctrlRecvCtr++)
+        val pt = chacha20Poly1305Decrypt(controlIn, nonce, ct, lenData)
+            ?: throw IOException("控制通道解密失败")
+        debugLog("解密帧成功: ${pt.size} 字节")
+        return pt
+    }
+
+    private fun readFully(input: InputStream, n: Int): ByteArray {
+        val out = ByteArray(n)
+        var off = 0
+        while (off < n) {
+            val r = input.read(out, off, n - off)
+            if (r < 0) throw IOException("连接被关闭")
+            off += r
+        }
+        return out
+    }
+
+    private fun parseControlResponse(): ControlResponse? {
+        val data = plainRxBuf.toByteArray()
+        val headEnd = findHeadEnd(data) ?: return null
+        debugLog("parseControlResponse: 找到响应头, 缓冲=${data.size}B")
+        val head = String(data, 0, headEnd, Charsets.US_ASCII)
+        val lines = head.split("\r\n")
+        if (lines.isEmpty()) return null
+        val statusLine = lines[0]
+        val parts = statusLine.split(" ")
+        val code = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        val headers = HashMap<String, String>()
+        for (i in 1 until lines.size) {
+            val colon = lines[i].indexOf(':')
+            if (colon > 0) {
+                headers[lines[i].substring(0, colon).trim().lowercase(Locale.US)] =
+                    lines[i].substring(colon + 1).trim()
+            }
+        }
+        val contentLen = responseBodyLength(headers["content-length"])
+        val cseq = headers["cseq"]?.toIntOrNull()
+        val total = headEnd + 4 + contentLen
+        if (data.size < total) {
+            listener.onLog("解析: 响应头完整但 body 不完整 (需要 $total, 已有 ${data.size})")
+            return null
+        }
+        val body = data.copyOfRange(headEnd + 4, total)
+        val rem = data.copyOfRange(total, data.size)
+        plainRxBuf.reset()
+        plainRxBuf.write(rem)
+        debugLog("parseControlResponse: 消费响应 code=$code body=${body.size}B 剩余=${rem.size}B")
+        return ControlResponse(code, headers, body, statusLine, cseq)
+    }
+
+    private fun debugLog(msg: String) {
+        if (state == State.PAIRING || state == State.HANDSHAKE) {
+            listener.onLog(msg)
+        }
+    }
+
+    private fun findHeadEnd(data: ByteArray): Int? {
+        for (i in 0 until data.size - 3) {
+            if (data[i] == '\r'.code.toByte() && data[i + 1] == '\n'.code.toByte() &&
+                data[i + 2] == '\r'.code.toByte() && data[i + 3] == '\n'.code.toByte()
+            ) {
+                return i
+            }
+        }
+        return null
+    }
+
+    private fun headState(cur: ByteArray): Int {
+        val tail = cur.copyOfRange(maxOf(0, cur.size - 3), cur.size)
+        return when {
+            tail.size >= 3 && tail[0] == '\r'.code.toByte() && tail[1] == '\n'.code.toByte() && tail[2] == '\r'.code.toByte() -> 3
+            tail.size >= 2 && tail[0] == '\r'.code.toByte() && tail[1] == '\n'.code.toByte() -> 2
+            tail.size >= 1 && tail[0] == '\r'.code.toByte() -> 1
+            else -> 0
+        }
+    }
+
+    private fun parseContentLength(head: String): Int {
+        for (line in head.split("\r\n")) {
+            if (line.startsWith("content-length:", ignoreCase = true)) {
+                return responseBodyLength(line.substringAfter(':').trim())
+            }
+        }
+        return 0
+    }
+
+    private fun checkCode(resp: ControlResponse, step: String) {
+        if (resp.code !in 200..299) {
+            val hint = when (resp.code) {
+                470 -> "（设备要求 PIN 配对）"
+                403 -> "（被设备的访问控制拒绝）"
+                else -> ""
+            }
+            throw IOException("$step 返回 HTTP ${resp.code} $hint")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Event channel keep-alive
+
+    private fun eventLoop() {
+        val input = eventSock!!.getInputStream()
+        val plainBuf = ByteArrayOutputStream()
+        val lenBytes = ByteArray(2)
+        var lenHave = 0
+        var ct: ByteArray? = null
+        var ctHave = 0
+        while (running) {
+            try {
+                if (ct == null) {
+                    val r = input.read(lenBytes, lenHave, 2 - lenHave)
+                    if (r < 0) break
+                    lenHave += r
+                    if (lenHave < 2) continue
+                    val len = (lenBytes[0].toInt() and 0xFF) or ((lenBytes[1].toInt() and 0xFF) shl 8)
+                    if (len > 4096) {
+                        listener.onLog("事件帧长度异常 len=$len，重置事件通道")
+                        lenHave = 0
+                        continue
+                    }
+                    ct = ByteArray(len + 16)
+                    ctHave = 0
+                    continue
+                }
+                val frame = ct!!
+                val r = input.read(frame, ctHave, frame.size - ctHave)
+                if (r < 0) break
+                ctHave += r
+                if (ctHave < frame.size) continue
+                ct = null
+                lenHave = 0
+                val len = frame.size - 16
+                val nonce = counterNonce8(eventRecvCtr)
+                var pt = chacha20Poly1305Decrypt(eventIn, nonce, frame, lenBytes)
+                if (pt == null) {
+                    val swapped = chacha20Poly1305Decrypt(eventOut, nonce, frame, lenBytes)
+                    val prevCtr = chacha20Poly1305Decrypt(eventIn, counterNonce8(eventRecvCtr - 1), frame, lenBytes)
+                    val nextCtr = chacha20Poly1305Decrypt(eventIn, counterNonce8(eventRecvCtr + 1), frame, lenBytes)
+                    listener.onLog(
+                        "事件帧解密失败 len=$len ctr=$eventRecvCtr " +
+                            "read=${swapped != null} ctr-1=${prevCtr != null} ctr+1=${nextCtr != null}"
+                    )
+                    when {
+                        swapped != null -> {
+                            listener.onLog("事件密钥方向相反，已交换")
+                            val t = eventIn
+                            eventIn = eventOut
+                            eventOut = t
+                            pt = swapped
+                        }
+                        prevCtr != null -> {
+                            listener.onLog("事件计数器实际从 -1 开始")
+                            pt = prevCtr
+                        }
+                        nextCtr != null -> {
+                            listener.onLog("事件计数器实际从 +1 开始")
+                            eventRecvCtr++
+                            pt = nextCtr
+                        }
+                        else -> {
+                            listener.onLog("事件帧无法解密，跳过该帧")
+                            continue
+                        }
+                    }
+                }
+                val out = pt ?: continue
+                eventRecvCtr++
+                plainBuf.write(out)
+                if (plainBuf.size() > 1 shl 20) {
+                    listener.onLog("事件通道明文缓冲过大，断开")
+                    break
+                }
+                if (eventFrameCount < 5) {
+                    eventFrameCount++
+                    listener.onLog("事件帧解密成功 len=$len")
+                }
+                while (true) {
+                    val data = plainBuf.toByteArray()
+                    val headEnd = findHeadEnd(data) ?: break
+                    val head = String(data, 0, headEnd, Charsets.US_ASCII)
+                    val contentLen = parseContentLength(head)
+                    val total = headEnd + 4 + contentLen
+                    if (data.size < total) break
+                    var cseqLine: String? = null
+                    for (line in head.split("\r\n")) {
+                        if (line.startsWith("cseq:", ignoreCase = true)) {
+                            cseqLine = line.substringAfter(':').trim()
+                            break
+                        }
+                    }
+                    val rem = data.copyOfRange(total, data.size)
+                    plainBuf.reset()
+                    plainBuf.write(rem)
+                    sendEvent200(cseqLine)
+                }
+            } catch (e: SocketTimeoutException) {
+                // normal: keep partial bytes and continue
+            } catch (e: IOException) {
+                if (running) listener.onLog("事件通道断开: ${e.message}")
+                break
+            }
+        }
+    }
+
+    private fun sendEvent200(cseqLine: String?) {
+        val sb = StringBuilder()
+        sb.append("RTSP/1.0 200 OK\r\n")
+        sb.append("Server: AirTunes/550.10\r\n")
+        if (cseqLine != null) sb.append("CSeq: $cseqLine\r\n")
+        sb.append("\r\n")
+        val out = eventSock!!.getOutputStream()
+        synchronized(writeLock) {
+            val data = sb.toString().toByteArray(Charsets.US_ASCII)
+            val ctr0 = eventSendCtr
+            writeEncryptedFrames(out, eventOut, ctr0, data)
+            eventSendCtr = ctr0 + (data.size + 1023) / 1024
+        }
+    }
+
+    private fun writeEncryptedFrames(out: OutputStream, key: ByteArray, startCtr: Long, data: ByteArray) {
+        var ctr = startCtr
+        var off = 0
+        while (off < data.size) {
+            val len = minOf(1024, data.size - off)
+            val lp = byteArrayOf((len and 0xFF).toByte(), ((len shr 8) and 0xFF).toByte())
+            val nonce = counterNonce8(ctr++)
+            val ct = chacha20Poly1305Encrypt(key, nonce, data.copyOfRange(off, off + len), lp)
+            out.write(lp)
+            out.write(ct)
+            off += len
+        }
+        out.flush()
+    }
+
+    // ------------------------------------------------------------------
+    // Streaming
+
+    private fun startPacer() {
+        pacerThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            val nominalPeriod = FRAMES_PER_PACKET * 1_000_000_000L / RATE
+            var periodNanos = nominalPeriod
+            var nextSend = SystemClock.elapsedRealtimeNanos()
+            var underruns = 0L
+            var padded = 0L
+            var resyncs = 0L
+            var lastSendAt = 0L
+            var maxGapMs = 0
+            var gapsOver20ms = 0L
+            var lastStatsAt = SystemClock.elapsedRealtimeNanos()
+            var clockLogged = false
+            var cleanWindows = 0
+            while (running) {
+                val now = SystemClock.elapsedRealtimeNanos()
+
+                // 发送周期：优先捕获硬件时钟（AudioRecord），其次 AudioTrack 主时钟，最后标称
+                val cap = captureRate
+                val clock = masterClock
+                val mcRate = if (clock != null && clock.isUsable) clock.rateHz() else 0.0
+                val rateHz = if (cap > 0.0) cap else if (mcRate > 0.0) mcRate else 0.0
+                if (rateHz > 0.0) {
+                    if (!clockLogged) {
+                        clockLogged = true
+                        listener.onLog(
+                            String.format(Locale.US, "发送时钟已锁定: 捕获=%.1f Hz 主时钟=%.1f Hz", cap, mcRate)
+                        )
+                    }
+                    val measured = (FRAMES_PER_PACKET * 1_000_000_000L / rateHz).toLong()
+                    if (measured > 0) {
+                        periodNanos = measured.coerceIn(
+                            nominalPeriod - nominalPeriod / 64,
+                            nominalPeriod + nominalPeriod / 64
+                        )
+                    }
+                } else if (!clockLogged) {
+                    clockLogged = true
+                    listener.onLog("发送时钟参考: 标称 44100 Hz（捕获/主时钟均未锁定）")
+                }
+
+                if (ring.availableFrames() < FRAMES_PER_PACKET && framesSent == 0L) {
+                    // 等第一包真实数据，避免开播先放静音
+                    underruns++
+                    parkNanosPrecisely(now + 1_000_000L)
+                    continue
+                }
+                if (now - nextSend > 5_000_000L) {
+                    // 落后超过 5ms 不再追赶，直接重排，避免向接收端突发灌包
+                    nextSend = now
+                    resyncs++
+                }
+                if (now < nextSend) {
+                    parkNanosPrecisely(nextSend)
+                    continue
+                }
+
+                // 时间线保持连续：有真实数据就发，源暂停/捕获空窗时发静音；
+                // UDP 发送已移到独立线程，这里不会因弱网阻塞。
+                if (ring.availableFrames() < FRAMES_PER_PACKET) padded++
+                var sent = 0
+                while (running && sent < 2 && now >= nextSend) {
+                    try {
+                        sendAudioPacket()
+                    } catch (e: Exception) {
+                        listener.onLog("音频发送失败: ${e.message}")
+                        running = false
+                        break
+                    }
+                    sent++
+                    nextSend += periodNanos
+                }
+                if (!running || sent == 0) continue
+                val t1 = SystemClock.elapsedRealtimeNanos()
+                if (lastSendAt > 0) {
+                    val gapMs = ((t1 - lastSendAt) / 1_000_000L).toInt()
+                    if (gapMs > maxGapMs) maxGapMs = gapMs
+                    if (gapMs > 20) gapsOver20ms++
+                }
+                lastSendAt = t1
+
+                if (SystemClock.elapsedRealtimeNanos() - lastStatsAt > 10_000_000_000L) {
+                    lastStatsAt = SystemClock.elapsedRealtimeNanos()
+                    val overflow = ring.drainOverflowFrames()
+                    val req = lossRequests.getAndSet(0)
+                    val rt = lossRetransmits.getAndSet(0)
+                    val miss = lossMisses.getAndSet(0)
+                    val lp = lossPackets.getAndSet(0)
+                    val rs = redSent.getAndSet(0)
+                    val txd = txDrops.getAndSet(0)
+                    val rskip = redSkipped.getAndSet(0)
+                    val thr = lossThrottled.getAndSet(0)
+                    val avgAlac = if (alacPackets > 0) alacBytes / alacPackets else 0
+                    if (lp >= 400) {
+                        if (!lossStorm) {
+                            lossStorm = true
+                            listener.onLog("丢包率过高，临时关闭冗余以降低链路负载")
+                        }
+                    } else if (lp < 100 && lossStorm) {
+                        lossStorm = false
+                        listener.onLog("丢包率回落，恢复冗余")
+                    }
+                    if (!robustMode) {
+                        if (lp >= 4 || req >= 2) {
+                            if (!adaptiveRedundancy) {
+                                adaptiveRedundancy = true
+                                listener.onLog(
+                                    "网络丢包较多，已自动启用延时冗余（延迟 ${redundancyDelayNanos() / 1_000_000}ms）"
+                                )
+                            }
+                            cleanWindows = 0
+                        } else if (adaptiveRedundancy) {
+                            cleanWindows++
+                            if (cleanWindows >= 3) {
+                                adaptiveRedundancy = false
+                                listener.onLog("网络恢复，已自动关闭延时冗余")
+                            }
+                        }
+                    }
+                    val loss = if (req > 0) {
+                        "$req 次, 已重发=$rt, 已失效=$miss, 丢包帧=$lp" +
+                            (if (thr > 0) ", 截流=$thr" else "")
+                    } else null
+                    val redState = when {
+                        lossStorm -> "风暴暂停"
+                        robustMode -> "手动"
+                        adaptiveRedundancy -> "自动"
+                        else -> "关"
+                    }
+                    listener.onLog(
+                        String.format(
+                            Locale.US,
+                            "音频节奏: 缓冲=%d/%d 周期=%.2fms 欠载=%d 补静音=%d 重排=%d 缺口>20ms=%d 最大间隔=%dms 溢出=%d 发送丢弃=%d ALAC均值=%dB 回退=%d 捕获=%.1fHz 主时钟=%.1fHz 冗余=%s%s%s%s",
+                            ring.availableFrames(), latencyFrames, periodNanos / 1_000_000.0,
+                            underruns, padded, resyncs, gapsOver20ms, maxGapMs, overflow, txd,
+                            avgAlac, alacVerbatim,
+                            cap, mcRate,
+                            redState,
+                            if (loss != null) " 丢包[$loss]" else "",
+                            if (rs > 0) " 冗余发送=$rs" else "",
+                            if (rskip > 0) " 冗余丢弃=$rskip" else ""
+                        )
+                    )
+                    underruns = 0
+                    padded = 0
+                    resyncs = 0
+                    gapsOver20ms = 0
+                    maxGapMs = 0
+                    alacBytes = 0
+                    alacPackets = 0
+                    alacVerbatim = 0
+                }
+                parkNanosPrecisely(nextSend)
+            }
+        }, "raop-pacer").also { it.start() }
+    }
+
+    /** Sleep until targetNanos with sub-millisecond accuracy (park + short busy wait). */
+    private fun parkNanosPrecisely(targetNanos: Long) {
+        var remaining = targetNanos - SystemClock.elapsedRealtimeNanos()
+        while (remaining > 300_000L) {
+            LockSupport.parkNanos(remaining - 200_000L)
+            remaining = targetNanos - SystemClock.elapsedRealtimeNanos()
+        }
+        while (remaining > 0L) {
+            remaining = targetNanos - SystemClock.elapsedRealtimeNanos()
+        }
+    }
+
+    private fun startSyncTimer() {
+        syncThread = Thread({
+            while (running) {
+                // SR 同步包每 500ms 一次，帮助接收端更快校正时钟
+                try {
+                    Thread.sleep(500)
+                } catch (e: InterruptedException) {
+                    break
+                }
+                if (running) {
+                    try {
+                        sendSyncPacket(false)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }, "raop-sync").also { it.start() }
+    }
+
+    private fun startFeedback() {
+        feedbackThread = Thread({
+            while (running) {
+                val interval = if (airplay2) 2000L else 25000L
+                try {
+                    Thread.sleep(interval)
+                } catch (e: InterruptedException) {
+                    break
+                }
+                if (running) {
+                    try {
+                        sendFeedback()
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }, "raop-feedback").also { it.start() }
+    }
+
+    private fun startUdpReaders() {
+        udpControlThread = Thread({ udpControlLoop() }, "raop-udp-control").also { it.start() }
+        udpTimingThread = Thread({ udpTimingLoop() }, "raop-udp-timing").also { it.start() }
+    }
+
+    private fun udpControlLoop() {
+        val sock = controlSock ?: return
+        sock.soTimeout = 500
+        val buf = ByteArray(65536)
+        while (running) {
+            try {
+                val p = DatagramPacket(buf, buf.size)
+                sock.receive(p)
+                handleControlDatagram(p)
+            } catch (e: SocketTimeoutException) {
+                // normal
+            } catch (e: IOException) {
+                if (controlSock !== sock) break // socket replaced by a new session
+                if (running) {
+                    try {
+                        Thread.sleep(500)
+                    } catch (ie: InterruptedException) {
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleControlDatagram(dg: DatagramPacket) {
+        val data = dg.data
+        val size = dg.length
+        if (size < 8) return
+        val type = data[1].toInt() and 0x7F
+        if (type != 0x55) return
+        lossRequests.incrementAndGet()
+        val lostSeq = ((data[4].toInt() and 0xFF) shl 8) or (data[5].toInt() and 0xFF)
+        val lostCount = ((data[6].toInt() and 0xFF) shl 8) or (data[7].toInt() and 0xFF)
+        lossPackets.addAndGet(lostCount.toLong())
+        for (i in 0 until lostCount) {
+            val s = (lostSeq + i) and 0xFFFF
+            val slot = s and (BACKLOG_SIZE - 1)
+            val now = SystemClock.elapsedRealtimeNanos()
+            // 同一 seq 100ms 内不重复回：接收端会周期性重发请求，重复回只会放大流量
+            if (now - lastReplyAt[slot] < 100_000_000L) {
+                lossThrottled.incrementAndGet()
+                continue
+            }
+            // 全局限速：每 100ms 最多回 15 条（约 150/s），防止丢包风暴把链路打满
+            if (now - replyWindowStart > 100_000_000L) {
+                replyWindowStart = now
+                replyWindowCount = 0
+            }
+            if (replyWindowCount >= 15) {
+                lossThrottled.incrementAndGet()
+                continue
+            }
+            val pkt: ByteArray?
+            synchronized(backlogLock) {
+                pkt = if (backlogSeq[slot] == s) backlog[slot] else null
+            }
+            if (pkt != null) {
+                val resp = ByteArray(4 + pkt.size)
+                resp[0] = 0x80.toByte()
+                resp[1] = 0xD6.toByte()
+                resp[2] = ((s shr 8) and 0xFF).toByte()
+                resp[3] = (s and 0xFF).toByte()
+                System.arraycopy(pkt, 0, resp, 4, pkt.size)
+                enqueueCtrl(resp, controlSock, dg.address, dg.port)
+                lastReplyAt[slot] = now
+                replyWindowCount++
+                lossRetransmits.incrementAndGet()
+            } else {
+                lossMisses.incrementAndGet()
+            }
+        }
+    }
+
+    /** 延时冗余发送线程：到点后补发音频副本/重传回复。 */
+    private fun startDelayedSends() {
+        delayedThread = Thread({
+            while (running) {
+                var item: DelayedSend? = null
+                val now = SystemClock.elapsedRealtimeNanos()
+                synchronized(delayedLock) {
+                    if (delayedSends.isNotEmpty() && delayedSends.first().dueNanos <= now) {
+                        item = delayedSends.removeFirst()
+                    }
+                }
+                if (item != null) {
+                    if (now > item.usefulUntilNanos) {
+                        redSkipped.incrementAndGet()
+                        continue
+                    }
+                    try {
+                        val sock = item.sock ?: continue
+                        if (sock.isConnected) {
+                            sock.send(DatagramPacket(item.data, item.data.size))
+                        } else if (item.addr != null) {
+                            sock.send(DatagramPacket(item.data, item.data.size, item.addr, item.port))
+                        }
+                        redSent.incrementAndGet()
+                    } catch (_: Exception) {
+                    }
+                    continue
+                }
+                try {
+                    Thread.sleep(20)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }, "raop-redundancy").also { it.start() }
+    }
+
+    private fun enqueueDelayed(
+        data: ByteArray,
+        sock: DatagramSocket?,
+        addr: InetAddress?,
+        port: Int,
+        delayNanos: Long
+    ) {
+        if (sock == null) return
+        val now = SystemClock.elapsedRealtimeNanos()
+        val useful = if (sock === audioSock) {
+            now + latencyFrames * 1_000_000_000L / RATE - 50_000_000L
+        } else {
+            now + 5_000_000_000L
+        }
+        synchronized(delayedLock) {
+            delayedSends.addLast(
+                DelayedSend(data, sock, addr, port, now + delayNanos, useful)
+            )
+        }
+    }
+
+    private fun enqueueCtrl(data: ByteArray, sock: DatagramSocket?, addr: InetAddress?, port: Int) {
+        if (sock == null) return
+        synchronized(ctrlTxLock) {
+            ctrlTxQueue.addLast(TxItem(data, sock, addr, port, Long.MAX_VALUE))
+        }
+    }
+
+    /** 独立发送线程：UDP 阻塞只影响该线程，不影响 pacer 节奏与控制接收。 */
+    private fun startTxThreads() {
+        if (audioTxThread == null || !audioTxThread!!.isAlive) {
+            audioTxThread = Thread({ txLoop(audioTxQueue, audioTxLock) }, "raop-audio-tx").also { it.start() }
+        }
+        if (ctrlTxThread == null || !ctrlTxThread!!.isAlive) {
+            ctrlTxThread = Thread({ txLoop(ctrlTxQueue, ctrlTxLock) }, "raop-ctrl-tx").also { it.start() }
+        }
+    }
+
+    private fun txLoop(queue: java.util.ArrayDeque<TxItem>, lock: Any) {
+        while (running) {
+            var item: TxItem? = null
+            synchronized(lock) {
+                if (queue.isNotEmpty()) item = queue.removeFirst()
+            }
+            if (item != null) {
+                if (SystemClock.elapsedRealtimeNanos() > item.usefulUntilNanos) continue
+                try {
+                    val sock = item.sock ?: continue
+                    if (sock.isConnected) {
+                        sock.send(DatagramPacket(item.data, item.data.size))
+                    } else if (item.addr != null) {
+                        sock.send(DatagramPacket(item.data, item.data.size, item.addr, item.port))
+                    }
+                } catch (_: Exception) {
+                }
+                continue
+            }
+            try {
+                Thread.sleep(5)
+            } catch (e: InterruptedException) {
+                break
+            }
+        }
+    }
+
+    /** 冗余副本的错峰延迟：必须小于接收端缓冲，避免补发晚于播放时刻。 */
+    private fun redundancyDelayNanos(): Long = when (latencyMode) {
+        LatencyMode.ULTRA -> 40_000_000L
+        LatencyMode.LOW -> 100_000_000L
+        LatencyMode.STABLE -> 200_000_000L
+        LatencyMode.SAFE -> 1_000_000_000L
+    }
+
+    private fun udpTimingLoop() {
+        val sock = timingSock ?: return
+        sock.soTimeout = 500
+        val buf = ByteArray(64)
+        while (running) {
+            try {
+                val p = DatagramPacket(buf, buf.size)
+                sock.receive(p)
+                handleTimingDatagram(p)
+            } catch (e: SocketTimeoutException) {
+                // normal
+            } catch (e: IOException) {
+                if (timingSock !== sock) break // socket replaced by a new session
+                if (running) {
+                    try {
+                        Thread.sleep(500)
+                    } catch (ie: InterruptedException) {
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleTimingDatagram(dg: DatagramPacket) {
+        val data = dg.data
+        if (dg.length < 32) return
+        val now = ntpNow()
+        val resp = ByteArray(32)
+        resp[0] = data[0]
+        resp[1] = 0xD3.toByte()
+        resp[2] = 0
+        resp[3] = 7
+        System.arraycopy(data, 24, resp, 8, 8) // reftime = request sendtime
+        putU32(resp, 16, (now ushr 32) and 0xFFFFFFFFL)
+        putU32(resp, 20, now and 0xFFFFFFFFL)
+        putU32(resp, 24, (now ushr 32) and 0xFFFFFFFFL)
+        putU32(resp, 28, now and 0xFFFFFFFFL)
+        enqueueCtrl(resp, timingSock, dg.address, dg.port)
+    }
+
+    private fun sendAudioPacket() {
+        val got = ring.read(audioFrames, FRAMES_PER_PACKET)
+        if (got < FRAMES_PER_PACKET) {
+            java.util.Arrays.fill(audioFrames, got * CHANNELS, audioFrames.size, 0.toShort())
+        }
+        val hdr = audioWire
+        hdr[0] = 0x80.toByte()
+        hdr[1] = if (firstAudio) 0xE0.toByte() else 0x60.toByte()
+        hdr[2] = ((seq shr 8) and 0xFF).toByte()
+        hdr[3] = (seq and 0xFF).toByte()
+        putU32(hdr, 4, rtptime32())
+        putU32(hdr, 8, sessionId)
+
+        var wireLen: Int
+        if (encryptAudio) {
+            val alac = if (alacOn) {
+                AlacCodec.encode(audioFrames)
+            } else {
+                AlacCodec.Result(AlacCodec.encodeVerbatim(audioFrames), true)
+            }
+            System.arraycopy(alac.data, 0, audioWire, 12, alac.data.size)
+            val payloadLen = alac.data.size
+            val aad = hdr.copyOfRange(4, 12)
+            val nonce = counterNonce8(audioNonce++)
+            val ct = chacha20Poly1305Encrypt(audioKey, nonce, audioWire.copyOfRange(12, 12 + payloadLen), aad)
+            System.arraycopy(ct, 0, audioWire, 12, ct.size)
+            System.arraycopy(nonce, 0, audioWire, 12 + ct.size, nonce.size)
+            wireLen = ct.size + nonce.size
+            alacBytes += payloadLen
+            alacPackets++
+            if (alac.verbatim) alacVerbatim++
+        } else {
+            wireLen = encodeL16(audioFrames, audioWire, 12)
+        }
+        val total = 12 + wireLen
+        val pkt = audioWire.copyOf(total)
+        val sock = audioSock ?: return
+        // 交给独立发送线程：pacer 不再阻塞在 UDP send 上。
+        // 超过接收端预缓冲窗口的过期包会被发送线程丢弃，避免弱网恢复后补发陈年老包。
+        val usefulUntil = SystemClock.elapsedRealtimeNanos() +
+            latencyFrames * 1_000_000_000L / RATE - 50_000_000L
+        synchronized(audioTxLock) {
+            if (audioTxQueue.size >= AUDIO_TX_MAX) {
+                // 队列满时丢最旧、保最新：离播放时刻最近的音频优先发送，旧的交给 0x55 重传
+                audioTxQueue.removeFirst()
+                txDrops.incrementAndGet()
+            }
+            audioTxQueue.addLast(TxItem(pkt, sock, deviceAddress, serverPort, usefulUntil))
+        }
+        synchronized(backlogLock) {
+            backlog[seq and (BACKLOG_SIZE - 1)] = pkt
+            backlogSeq[seq and (BACKLOG_SIZE - 1)] = seq
+        }
+        // 手动或自动冗余：同一包延迟一段时间后补发，错开 Wi-Fi 突发丢包
+        if ((robustMode || adaptiveRedundancy) && !lossStorm) {
+            enqueueDelayed(pkt, audioSock, deviceAddress, serverPort, redundancyDelayNanos())
+        }
+        firstAudio = false
+        seq = (seq + 1) and 0xFFFF
+        framesSent += FRAMES_PER_PACKET
+    }
+
+    private fun encodeL16(frames: ShortArray, out: ByteArray, off: Int): Int {
+        var i = 0
+        var p = off
+        for (s in frames) {
+            out[p++] = ((s.toInt() shr 8) and 0xFF).toByte()
+            out[p++] = (s.toInt() and 0xFF).toByte()
+        }
+        return frames.size * 2
+    }
+
+    private fun sendSyncPacket(first: Boolean) {
+        if (serverPort == 0 || controlPort == 0) return
+        val curNtp = ts2ntp(startTs + framesSent, RATE)
+        val now = rtptime32()
+        val pkt = ByteArray(20)
+        pkt[0] = if (first) 0x90.toByte() else 0x80.toByte()
+        pkt[1] = 0xD4.toByte()
+        pkt[2] = 0
+        pkt[3] = 7
+        putU32(pkt, 4, (now - latencyFrames) and 0xFFFFFFFFL)
+        putU32(pkt, 8, (curNtp ushr 32) and 0xFFFFFFFFL)
+        putU32(pkt, 12, curNtp and 0xFFFFFFFFL)
+        putU32(pkt, 16, now)
+        val addr = deviceAddress ?: InetAddress.getByName(device.host)
+        controlSock!!.send(DatagramPacket(pkt, pkt.size, addr, controlPort))
+    }
+
+    private fun rtptime32(): Long = (latencyFrames + framesSent) and 0xFFFFFFFFL
+
+    private fun ntpNow(): Long {
+        // Monotonic high-resolution clock anchored to wall time at connect:
+        // microsecond precision without wall-clock jumps.
+        val us = wallMs0 * 1000L + (android.os.SystemClock.elapsedRealtimeNanos() - elapsedNanos0) / 1000L
+        val sec = us / 1_000_000L
+        val frac = us % 1_000_000L
+        return ((sec + 0x83AA7E80L) shl 32) or ((frac shl 32) / 1_000_000L)
+    }
+
+    private fun ntp2ts(ntp: Long, rate: Int): Long = ((ntp ushr 16) * rate.toLong()) ushr 16
+
+    private fun ts2ntp(ts: Long, rate: Int): Long {
+        val v = java.math.BigInteger.valueOf(ts)
+            .shiftLeft(16)
+            .divide(java.math.BigInteger.valueOf(rate.toLong()))
+            .shiftLeft(16)
+        return v.toLong()
+    }
+
+    private fun putU32(dst: ByteArray, off: Int, v: Long) {
+        dst[off] = ((v shr 24) and 0xFF).toByte()
+        dst[off + 1] = ((v shr 16) and 0xFF).toByte()
+        dst[off + 2] = ((v shr 8) and 0xFF).toByte()
+        dst[off + 3] = (v and 0xFF).toByte()
+    }
+
+    // ------------------------------------------------------------------
+
+    private fun setState(s: State) {
+        state = s
+        listener.onState(s)
+    }
+
+    private fun closeAll() {
+        masterClock?.stop()
+        masterClock = null
+        synchronized(delayedLock) {
+            delayedSends.clear()
+        }
+        synchronized(audioTxLock) {
+            audioTxQueue.clear()
+        }
+        synchronized(ctrlTxLock) {
+            ctrlTxQueue.clear()
+        }
+        try {
+            rtsp?.close()
+        } catch (_: Exception) {
+        }
+        try {
+            eventSock?.close()
+        } catch (_: Exception) {
+        }
+        try {
+            audioSock?.close()
+        } catch (_: Exception) {
+        }
+        try {
+            controlSock?.close()
+        } catch (_: Exception) {
+        }
+        try {
+            timingSock?.close()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun interruptThreads() {
+        for (t in listOf(sessionThread, pacerThread, syncThread, feedbackThread, volumeFlushThread, udpControlThread, udpTimingThread, eventThread, delayedThread, audioTxThread, ctrlTxThread)) {
+            t?.interrupt()
+        }
+    }
+}

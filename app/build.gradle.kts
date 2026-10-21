@@ -33,8 +33,8 @@ android {
         applicationId = providers.gradleProperty("applicationIdOverride").getOrElse("io.github.henry753951.airplaytv")
         minSdk = 26
         targetSdk = 37
-        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(7)
-        versionName = "0.2.0"
+        versionCode = providers.gradleProperty("versionCodeOverride").map(String::toInt).getOrElse(8)
+        versionName = "0.3.0-alpha1"
 
         externalNativeBuild {
             cmake {
@@ -93,18 +93,20 @@ android {
 
 tasks.register("applyUxplayPatches") {
     doLast {
-        fun git(vararg args: String): Pair<Int, String> {
-            val proc = ProcessBuilder("git", "-C", "$projectDir/src/main/cpp/third_party/UxPlay", *args)
+        fun git(component: String, vararg args: String): Pair<Int, String> {
+            val proc = ProcessBuilder("git", "-C", "$projectDir/src/main/cpp/third_party/$component", *args)
                 .redirectErrorStream(true).start()
             val out = proc.inputStream.bufferedReader().readText()
             return Pair(proc.waitFor(), out)
         }
-        val patches = file("src/main/cpp/patches/UxPlay").listFiles { f -> f.extension == "patch" }!!.sorted()
-        patches.forEach { patch ->
-            // Also builds from source archives, where submodules have no Git metadata.
-            if (git("apply", "--reverse", "--check", "--unidiff-zero", patch.absolutePath).first != 0) {
-                val result = git("apply", "--unidiff-zero", patch.absolutePath)
-                check(result.first == 0) { "Cannot apply ${patch.name}: ${result.second}" }
+        listOf("UxPlay", "openssl-cmake").forEach { component ->
+            val patches = file("src/main/cpp/patches/$component").listFiles { f -> f.extension == "patch" }!!.sorted()
+            patches.forEach { patch ->
+                // Also builds from source archives, where submodules have no Git metadata.
+                if (git(component, "apply", "--reverse", "--check", "--unidiff-zero", patch.absolutePath).first != 0) {
+                    val result = git(component, "apply", "--unidiff-zero", patch.absolutePath)
+                    check(result.first == 0) { "Cannot apply ${patch.name}: ${result.second}" }
+                }
             }
         }
     }
@@ -132,6 +134,7 @@ dependencies {
     implementation(libs.media3.ui.compose.material3)
     implementation(libs.media3.transformer)
     implementation(libs.kotlinx.coroutines)
+    implementation(libs.bouncycastle)
     implementation(libs.oboe)
 
     implementation(platform(libs.compose.bom))

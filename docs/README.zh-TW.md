@@ -1,13 +1,15 @@
-<img src="assets/icon.svg" width="88" alt="AirPlay & Remote Receiver 圖示" />
+<img src="assets/icon.svg" width="88" alt="Android TV AirPlay Hub 圖示" />
 
-# AirPlay & Remote Receiver
+# Android TV AirPlay Hub
+
+**投屏接收・iPhone 遙控・HomePod 傳聲**
 
 將 iPhone、iPad 或 Mac 的畫面與音訊傳送到 Android TV，並透過 iPhone 控制中心內建的
-Apple TV 遙控器操作電視。
+Apple TV 遙控器操作電視。目前 `0.3.0-alpha1` 原始碼另加入實驗性的電視 → HomePod 音訊輸出。
 
-**[下載 APK · v0.2.0](https://github.com/henry753951/airplay-remote-receiver/releases/download/v0.2.0/airplay-remote-receiver-0.2.0-armv7.apk)** ·
-[版本說明](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0) ·
-[所有版本](https://github.com/henry753951/airplay-remote-receiver/releases) · [English](../README.md)
+**[下載 APK · v0.2.0](https://github.com/henry753951/android-tv-airplay-hub/releases/download/v0.2.0/airplay-remote-receiver-0.2.0-armv7.apk)** ·
+[版本說明](https://github.com/henry753951/android-tv-airplay-hub/releases/tag/v0.2.0) ·
+[所有版本](https://github.com/henry753951/android-tv-airplay-hub/releases) · [English](../README.md)
 
 ## 功能
 
@@ -19,10 +21,24 @@ Apple TV 遙控器操作電視。
 - 投屏與遙控共用同一個電視名稱。
 - 背景接收、開機自啟與支援機型的螢幕喚醒。
 - 分類清楚的影像、音訊、遙控與電源設定。
+- HomePod 傳聲（實驗）：搜尋喇叭、安靜測試音、允許擷取的 App 播放音訊、獨立音量及通知停止按鈕。
+
+### HomePod 傳聲（0.3.0-alpha1）
+
+建置此版本後，開啟首頁「HomePod 傳聲」，選擇喇叭或輸入 IPv4 位址及公告的連接埠，先按「播放測試音」。
+需要傳送播放器音訊時，按「傳送 App 聲音」，完成音訊權限與 Android 擷取授權，再開啟允許擷取的播放器。
+可從這一頁或常駐通知停止。傳聲不會隨開機或程序重啟自動恢復，每次擷取都需要重新授權。
+
+電視與喇叭需在同一區域網路，且「家庭」App 必須允許此網路存取喇叭；本版未實作密碼／PIN 配對。
+App 音訊擷取需 Android 10 以上，不會錄製麥克風。播放器可禁止擷取，受保護內容可能無聲。
+電視原本的音訊仍會播放；本版尚無低音分頻、立體聲群組、影音及雙喇叭自動同步。
+AirPlay 緩衝會產生延遲。HomePod mini 的實際出聲、音質與延遲仍需實機確認，畫面顯示「傳送中」只代表協定連線成立。
+流程與程式分工見[音訊輸出文件](AUDIO_OUTPUT.md)。
 
 ## 下載與更新
 
-目前正式版為 **0.2.0**。[正式版下載頁](https://github.com/henry753951/airplay-remote-receiver/releases/latest)
+目前接收端正式版為 **0.2.0**，尚未包含 HomePod 傳聲，APK 仍顯示舊名稱 AirPlay &amp; Remote Receiver。
+[正式版下載頁](https://github.com/henry753951/android-tv-airplay-hub/releases/latest)
 提供已簽章的 ARMv7 APK、包含原生依賴的完整原始碼，以及 SHA-256 校驗碼。
 已有安裝時，直接以 APK 更新即可保留設定與已配對的控制裝置；更新需要相同的應用程式 ID 與簽章金鑰。
 
@@ -34,7 +50,7 @@ Apple TV 遙控器操作電視。
 
 ## 開始使用
 
-1. 從 [Releases](https://github.com/henry753951/airplay-remote-receiver/releases) 安裝簽章 APK，開啟 **AirPlay & Remote Receiver**。
+1. 從 [Releases](https://github.com/henry753951/android-tv-airplay-hub/releases) 安裝簽章 APK，開啟 **Android TV AirPlay Hub**。
 2. 在「設定」選擇電視名稱，依畫面提示完成權限設定。
 3. 在 iPhone／iPad 開啟「控制中心 → 螢幕鏡像輸出」，選擇你的電視。
 4. 輸入電視顯示的配對碼。
@@ -71,8 +87,8 @@ Mac 請使用「控制中心 → 螢幕鏡像輸出」。需要延伸桌面時�
 使用 JDK 21、Rust 1.98.0、Android SDK 37.0、NDK 27.0.12077973、CMake 3.22.1，設定 `ANDROID_HOME`：
 
 ```sh
-git clone --recurse-submodules https://github.com/henry753951/airplay-remote-receiver.git
-cd airplay-remote-receiver
+git clone --recurse-submodules https://github.com/henry753951/android-tv-airplay-hub.git
+cd android-tv-airplay-hub
 rustup target add armv7-linux-androideabi
 scripts/build-remote.sh
 (cd remote && cargo test --locked -p atv-core)

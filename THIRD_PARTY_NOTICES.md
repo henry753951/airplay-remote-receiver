@@ -1,6 +1,23 @@
 # Attribution
 
-AirPlay & Remote Receiver includes code from
+## HomePod audio sender
+
+The Kotlin sender, ALAC codec, crypto helpers, PCM buffer, audio clock, adapted
+playback capture and their protocol tests include Apache-2.0 code from
+[kerrybob46644-commits/AirBridge](https://github.com/kerrybob46644-commits/AirBridge)
+at revision `12d4fa781b86aaac6135e9279044d8a0f81fce21`.
+Local changes integrate the package, cancellation, capture cleanup and input
+validation. The full upstream license is retained in
+[`licenses/AirBridge-Apache-2.0.txt`](licenses/AirBridge-Apache-2.0.txt).
+AirBridge credits the Apache-2.0 clean-room
+[airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp) reference
+and pyatv wire conventions. Bouncy Castle `bcprov-jdk18on` 1.79 supplies crypto
+primitives under its [MIT-style license](licenses/Bouncy-Castle.txt). The combined
+application remains GPL-3.0.
+
+## Receiver origins
+
+Android TV AirPlay Hub includes code from
 [jqssun/android-airplay-server](https://github.com/jqssun/android-airplay-server)
 (commit `a46cca0a6a1274e9e33c0e750f0f1c1eb1d881ea`), licensed under GPL-3.0.
 Original source notices are retained; this distribution remains GPL-3.0.

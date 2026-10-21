@@ -1,16 +1,19 @@
-<img src="docs/assets/icon.svg" width="88" alt="AirPlay & Remote Receiver icon" />
+<img src="docs/assets/icon.svg" width="88" alt="Android TV AirPlay Hub icon" />
 
-# AirPlay & Remote Receiver
+# Android TV AirPlay Hub
 
-Mirror your iPhone, iPad or Mac to Android TV, stream audio, and control your TV
-with the Apple TV Remote in iPhone Control Center.
+**Screen mirroring · iPhone remote · HomePod audio output**
 
-[![Build](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/airplay-remote-receiver/actions/workflows/build.yml)
+Mirror your iPhone, iPad or Mac to Android TV and control your TV with the Apple TV
+Remote in iPhone Control Center. The `0.3.0-alpha1` source also adds experimental
+TV-to-HomePod audio output in the same app.
+
+[![Build](https://github.com/henry753951/android-tv-airplay-hub/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/android-tv-airplay-hub/actions/workflows/build.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-**[Download APK · v0.2.0](https://github.com/henry753951/airplay-remote-receiver/releases/download/v0.2.0/airplay-remote-receiver-0.2.0-armv7.apk)** ·
-[Release notes](https://github.com/henry753951/airplay-remote-receiver/releases/tag/v0.2.0) ·
-[All releases](https://github.com/henry753951/airplay-remote-receiver/releases) ·
+**[Download APK · v0.2.0](https://github.com/henry753951/android-tv-airplay-hub/releases/download/v0.2.0/airplay-remote-receiver-0.2.0-armv7.apk)** ·
+[Release notes](https://github.com/henry753951/android-tv-airplay-hub/releases/tag/v0.2.0) ·
+[All releases](https://github.com/henry753951/android-tv-airplay-hub/releases) ·
 **[繁體中文](docs/README.zh-TW.md)** · [Contributing](CONTRIBUTING.md)
 
 ## Features
@@ -23,10 +26,32 @@ with the Apple TV Remote in iPhone Control Center.
 - One TV name for casting and remote control.
 - Background reception, optional startup at boot and supported display wake.
 - Picture, audio, remote control and power settings.
+- Experimental HomePod output: speaker discovery, a quiet test tone, permitted-app
+  playback capture, independent volume and a foreground Stop action.
+
+### HomePod output (0.3.0-alpha1)
+
+Build this revision, open **HomePod audio output**, select a speaker (or enter its
+IPv4 address and advertised port), then choose **Play test tone**. To send player
+audio, choose **Send app audio**, grant audio permission and approve Android's
+capture prompt, then open a player that permits playback capture. Stop from this
+page or the persistent notification. Output does not restart at boot or after a
+process restart; every capture session needs fresh consent.
+
+TV and speaker must share a LAN. Allow speaker access from that network in the
+Home app; PIN/password pairing is not implemented. Capture requires Android 10+;
+the microphone is never opened. Apps may prohibit capture, including protected
+playback. This version leaves TV audio enabled and does not provide subwoofer
+filtering, stereo grouping or automatic video/TV-speaker synchronization. AirPlay
+buffering adds audible delay. HomePod mini compatibility, sound quality and latency
+still require physical-device validation; a “sending” status only confirms the
+protocol session, not sound at the speaker. See [audio output](docs/AUDIO_OUTPUT.md).
 
 ## Downloads
 
-**0.2.0** is the current stable release. [Releases](https://github.com/henry753951/airplay-remote-receiver/releases/latest)
+**0.2.0** is the current stable receiver release and does not include HomePod output.
+Its APK still carries the previous name, AirPlay & Remote Receiver.
+[Releases](https://github.com/henry753951/android-tv-airplay-hub/releases/latest)
 provides the signed ARMv7 APK, a complete source archive including native dependencies,
 and SHA-256 checksums. Update an existing installation with the APK to retain settings
 and paired controllers; updates require the same application ID and signing key.
@@ -39,7 +64,7 @@ and paired controllers; updates require the same application ID and signing key.
 
 ## Get started
 
-1. Install the signed APK from [Releases](https://github.com/henry753951/airplay-remote-receiver/releases) and open **AirPlay & Remote Receiver** on the TV.
+1. Install the signed APK from [Releases](https://github.com/henry753951/android-tv-airplay-hub/releases) and open **Android TV AirPlay Hub** on the TV.
 2. Choose a TV name in **Settings** and complete the on-screen permission prompts.
 3. On iPhone or iPad, open **Control Center → Screen Mirroring** and choose your TV.
 4. Enter the pairing code shown on the TV.
@@ -95,8 +120,8 @@ The project uses the checked-in Gradle wrapper and dependency catalog.
 Install the listed SDK components, set `ANDROID_HOME`, then:
 
 ```sh
-git clone --recurse-submodules https://github.com/henry753951/airplay-remote-receiver.git
-cd airplay-remote-receiver
+git clone --recurse-submodules https://github.com/henry753951/android-tv-airplay-hub.git
+cd android-tv-airplay-hub
 # Optional toolchain provisioning with mise: mise trust && mise install
 rustup target add armv7-linux-androideabi
 scripts/build-remote.sh

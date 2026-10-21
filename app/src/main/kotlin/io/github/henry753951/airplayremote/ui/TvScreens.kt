@@ -113,7 +113,7 @@ private val TV_ART_SIZE = 340.dp
 // every page knows where Back goes; parents are declared before children
 internal enum class TvPage(val parent: TvPage?) {
     HOME(null),
-    CAST_GUIDE(HOME), REMOTE_GUIDE(HOME),
+    CAST_GUIDE(HOME), REMOTE_GUIDE(HOME), SPEAKERS(HOME),
     SETTINGS(HOME),
     GENERAL(SETTINGS), VIDEO(SETTINGS), AUDIO(SETTINGS), REMOTE(SETTINGS), POWER(SETTINGS), DIAGNOSTICS(SETTINGS),
     GRAYSCALE(VIDEO),
@@ -188,6 +188,7 @@ internal fun TvRouter(
                 }
                 TvPage.CAST_GUIDE -> TvCastGuide(viewModel, back, go)
                 TvPage.REMOTE_GUIDE -> TvRemoteGuide(viewModel, back, go)
+                TvPage.SPEAKERS -> TvSubPage(stringResource(R.string.speaker_title), back) { HomePodScreen(onLocalNetwork) }
                 TvPage.SETTINGS -> TvRootSettings(viewModel, memo(target), saveFocus(target), back, go)
                 TvPage.GENERAL, TvPage.VIDEO, TvPage.AUDIO, TvPage.REMOTE, TvPage.POWER, TvPage.DIAGNOSTICS ->
                     TvCategory(viewModel, target, memo(target), saveFocus(target), back, go)
@@ -302,7 +303,7 @@ private fun openSystemSettings(ctx: android.content.Context, action: String) {
 
 // ---- home ----
 
-private enum class TvHomeEntry { CAST, REMOTE, SETTINGS }
+private enum class TvHomeEntry { CAST, REMOTE, SPEAKERS, SETTINGS }
 
 private const val ATTENTION_DELAY_MS = 1_500L
 
@@ -411,6 +412,7 @@ internal fun TvIdleScreen(
                         TvHomeEntry.CAST -> R.string.tv_home_cast to R.string.tv_home_cast_sub
                         TvHomeEntry.REMOTE -> R.string.tv_home_remote to
                             if (remoteEnabled) R.string.tv_home_remote_sub else R.string.tv_home_remote_off
+                        TvHomeEntry.SPEAKERS -> R.string.speaker_title to R.string.speaker_home_sub
                         TvHomeEntry.SETTINGS -> R.string.tv_settings to R.string.tv_home_settings_sub
                     }
                     TvHomeRow(
@@ -427,6 +429,7 @@ internal fun TvIdleScreen(
                                 when (entry) {
                                     TvHomeEntry.CAST -> TvPage.CAST_GUIDE
                                     TvHomeEntry.REMOTE -> TvPage.REMOTE_GUIDE
+                                    TvHomeEntry.SPEAKERS -> TvPage.SPEAKERS
                                     TvHomeEntry.SETTINGS -> TvPage.SETTINGS
                                 }
                             )
@@ -461,6 +464,7 @@ internal fun TvIdleScreen(
                     when (entry) {
                         TvHomeEntry.CAST -> TvCastArt()
                         TvHomeEntry.REMOTE -> TvRemoteArt(remoteEnabled)
+                        TvHomeEntry.SPEAKERS -> Text("♫", color = TvText, fontSize = 160.sp)
                         TvHomeEntry.SETTINGS -> TvSettingsArt()
                     }
                 }

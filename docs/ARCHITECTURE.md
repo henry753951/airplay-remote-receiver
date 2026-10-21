@@ -1,8 +1,10 @@
 # Architecture
 
-AirPlay & Remote Receiver is one Android application with two independently enabled
-network receivers. Both share the TV name, foreground-service lifetime and power
-policy. The Android source namespace is `io.github.henry753951.airplayremote`.
+Android TV AirPlay Hub combines two independently enabled network receivers with
+a user-started HomePod audio sender. The receivers share the TV name,
+foreground-service lifetime and power policy. The sender has its own foreground
+service and capture consent. The Android source namespace is
+`io.github.henry753951.airplayremote`.
 
 ## Boundaries
 
@@ -17,6 +19,8 @@ policy. The Android source namespace is `io.github.henry753951.airplayremote`.
 | `remote.identity` | Device-protected pairing identity and input preferences |
 | `remote.input` | Input strategies, persistent local ADB and accessibility integration |
 | `platform` | Network-interface inspection |
+| `audiooutput` | Speaker discovery, capture consent session and sender service |
+| `audiooutput.protocol` | Adapted AirBridge sender, ALAC, crypto and clock calibration |
 
 `AirPlayService` is the Android lifecycle coordinator. It delegates CPU residency
 to `ReceiverPowerManager` and stable identity to `AirPlayIdentity`; neither belongs

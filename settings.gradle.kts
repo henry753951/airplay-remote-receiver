@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AirPlayRemoteReceiver"
+rootProject.name = "AndroidTvAirPlayHub"
 include(":app")
