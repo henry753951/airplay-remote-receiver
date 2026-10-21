@@ -5,7 +5,7 @@
 **Screen mirroring · iPhone remote · HomePod audio output**
 
 Mirror your iPhone, iPad or Mac to Android TV and control your TV with the Apple TV
-Remote in iPhone Control Center. The `0.3.0-alpha1` source also adds experimental
+Remote in iPhone Control Center. The `0.3.0-alpha2` source also adds experimental
 TV-to-HomePod audio output in the same app.
 
 [![Build](https://github.com/henry753951/android-tv-airplay-hub/actions/workflows/build.yml/badge.svg)](https://github.com/henry753951/android-tv-airplay-hub/actions/workflows/build.yml)
@@ -29,10 +29,10 @@ TV-to-HomePod audio output in the same app.
 - Experimental HomePod output: speaker discovery, a quiet test tone, permitted-app
   playback capture, independent volume and a foreground Stop action.
 
-### HomePod output (0.3.0-alpha1)
+### HomePod output (0.3.0-alpha2)
 
-Build this revision, open **HomePod audio output**, select a speaker (or enter its
-IPv4 address and advertised port), then choose **Play test tone**. To send player
+Build this revision, open **HomePod audio output**, choose a speaker from the
+automatically discovered list, then choose **Play test tone**. To send player
 audio, choose **Send app audio**, grant audio permission and approve Android's
 capture prompt, then open a player that permits playback capture. Stop from this
 page or the persistent notification. Output does not restart at boot or after a

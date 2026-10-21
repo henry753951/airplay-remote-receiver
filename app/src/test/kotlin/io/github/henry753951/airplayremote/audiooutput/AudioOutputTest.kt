@@ -40,7 +40,7 @@ class AudioOutputTest {
         assertTrue(split.any { it != 0.toShort() })
         split.indices.step(2).forEach { i ->
             assertEquals(split[i], split[i + 1])
-            assertTrue(abs(split[i].toInt()) <= 1000)
+            assertTrue(abs(split[i].toInt()) <= 8000)
         }
     }
 

@@ -327,28 +327,6 @@
 
     <!-- HomePod output -->
     <string name="speaker_title">HomePod audio output</string>
-    <string name="speaker_home_sub">Play a test tone or send permitted app audio</string>
-    <string name="speaker_intro">Experimental · Send TV audio to an AirPlay speaker, including HomePod mini. Start with a quiet test tone.</string>
-    <string name="speaker_limit">App audio requires Android 10+, audio permission and system capture consent. Apps can block capture. This version does not mute or synchronize TV speakers, and does not provide a subwoofer crossover.</string>
+    <string name="speaker_home_sub">Send TV audio to an AirPlay speaker</string>
     <string name="speaker_notification">Speaker output session active. Open the app to view status or stop.</string>
-    <string name="speaker_stop">Stop output</string>
-    <string name="speaker_idle">Choose a speaker to begin.</string>
-    <string name="speaker_connecting">Connecting to %1$s…</string>
-    <string name="speaker_sending_tone">Sending a test tone to %1$s. Confirm sound at the speaker.</string>
-    <string name="speaker_sending_audio">Sending app audio to %1$s. Open a player that permits audio capture.</string>
-    <string name="speaker_failed">Output stopped or could not start. Check speaker access, Wi-Fi and capture permission, then try again.</string>
-    <string name="speaker_scan">Find speakers / refresh</string>
-    <string name="speaker_no_devices">No speakers found yet. You can also enter the speaker IPv4 address and port.</string>
-    <string name="speaker_ip">Speaker IPv4 address</string>
-    <string name="speaker_port">Port</string>
-    <string name="speaker_test">Play test tone</string>
-    <string name="speaker_capture">Send app audio</string>
-    <string name="speaker_quieter">Quieter −</string>
-    <string name="speaker_louder">Louder +</string>
-    <string name="speaker_volume">%1$d%%</string>
-    <string name="speaker_setup">Keep TV and speaker on the same LAN. In the Home app, allow speaker access from this network. PIN/password pairing, stereo groups and precise video sync are not supported yet. Source audio stays in memory and is not saved.</string>
-    <string name="speaker_cancelled">Capture consent cancelled. No audio capture started.</string>
-    <string name="speaker_permission_denied">Audio permission is required for app playback capture. The microphone is not recorded.</string>
-    <string name="speaker_capture_unavailable">This TV did not provide playback capture. Try the test tone first.</string>
-    <string name="speaker_scan_error">Speaker discovery is unavailable. Check local network permission or enter an IPv4 address.</string>
 </resources>

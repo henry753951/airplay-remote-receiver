@@ -10,8 +10,8 @@ internal class TestTone {
         require(frames in 1..44100)
         return ShortArray(frames * 2).also { pcm ->
             repeat(frames) { i ->
-                // A quiet 440 Hz tone; both channels carry the same sample.
-                val sample = (sin(2 * PI * 440 * frame++ / 44100) * 1000).toInt().toShort()
+                // A bounded 440 Hz reference tone, audible at the default 25% speaker volume.
+                val sample = (sin(2 * PI * 440 * frame++ / 44100) * 8000).toInt().toShort()
                 pcm[i * 2] = sample
                 pcm[i * 2 + 1] = sample
             }

@@ -41,6 +41,8 @@ class RaopSender(
         fun onLog(message: String)
         fun onStarted()
         fun onStopped(reason: String?)
+        fun onStats(airplay2: Boolean, frames: Long, underruns: Long, padded: Long,
+                    retransmits: Long, captureHz: Double, clockHz: Double) = Unit
     }
 
     enum class State { IDLE, CONNECTING, PAIRING, HANDSHAKE, STREAMING, STOPPING }
@@ -1466,6 +1468,7 @@ class RaopSender(
                             if (rskip > 0) " 冗余丢弃=$rskip" else ""
                         )
                     )
+                    listener.onStats(airplay2, framesSent, underruns, padded, req, cap, mcRate)
                     underruns = 0
                     padded = 0
                     resyncs = 0

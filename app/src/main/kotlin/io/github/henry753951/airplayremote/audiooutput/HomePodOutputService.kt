@@ -12,6 +12,8 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.wifi.WifiManager
+import android.util.Log
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -82,6 +84,7 @@ class HomePodOutputService : Service() {
     private var projection: MediaProjection? = null
     private var toneThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var generation = 0
     private val connectionTimeout = Runnable { fail() }
     private var projectionCallback: MediaProjection.Callback? = null
@@ -128,6 +131,12 @@ class HomePodOutputService : Service() {
                     @Suppress("WakelockTimeout") // Released with this user-visible foreground session.
                     val lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "airplay-hub:speaker-output").apply { acquire() }
                     wakeLock = lock
+                    // Keep Wi-Fi responsive even after the viewer switches to the source player.
+                    @Suppress("DEPRECATION")
+                    val networkLock = applicationContext.getSystemService(WifiManager::class.java)
+                        ?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "airplay-hub:speaker-output")
+                    wifiLock = networkLock
+                    networkLock?.apply { setReferenceCounted(false); acquire() }
                     connect(device)
                 } catch (_: Exception) { fail() }
             }
@@ -139,7 +148,15 @@ class HomePodOutputService : Service() {
     private fun connect(device: AirplayDevice) {
         val session = ++generation
         val output = RaopSender(device, object : RaopSender.Listener {
-            override fun onState(state: RaopSender.State) = Unit
+            override fun onState(state: RaopSender.State) {
+                Log.i("HomePodOutput", "state=${state.name}")
+            }
+            override fun onStats(airplay2: Boolean, frames: Long, underruns: Long, padded: Long,
+                                 retransmits: Long, captureHz: Double, clockHz: Double) {
+                // Only typed counters reach logs; pairing payloads and source audio never do.
+                Log.i("HomePodOutput", "ap2=$airplay2 frames=$frames underruns=$underruns padded=$padded " +
+                    "retransmitRequests=$retransmits captureHz=$captureHz clockHz=$clockHz")
+            }
             // The protocol can log session payloads; they are deliberately kept out of app logs.
             override fun onLog(message: String) = Unit
             override fun onStarted() { main.post {
@@ -192,7 +209,7 @@ class HomePodOutputService : Service() {
             .setContentTitle(getString(R.string.speaker_title))
             .setContentText(getString(R.string.speaker_notification))
             .setContentIntent(open).setOngoing(true)
-            .addAction(0, getString(R.string.speaker_stop), stop).build()
+            .addAction(0, getString(R.string.hp_stop), stop).build()
         val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
             (if (capturing) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0) else 0
         ServiceCompat.startForeground(this, NOTIFICATION, notification, type)
@@ -216,6 +233,7 @@ class HomePodOutputService : Service() {
         val oldCallback = projectionCallback.also { projectionCallback = null }
         val oldTone = toneThread.also { toneThread = null }
         val oldWakeLock = wakeLock.also { wakeLock = null }
+        val oldWifiLock = wifiLock.also { wifiLock = null }
         oldTone?.interrupt()
         if (oldCallback != null) {
             try { oldProjection?.unregisterCallback(oldCallback) } catch (_: RuntimeException) { }
@@ -224,11 +242,15 @@ class HomePodOutputService : Service() {
             try { if (Build.VERSION.SDK_INT >= 29) oldCapture?.stop() } finally {
                 try { oldSender?.stop() } finally {
                     try { oldProjection?.stop() } finally {
+                        oldWifiLock?.let { if (it.isHeld) it.release() }
                         oldWakeLock?.let { if (it.isHeld) it.release() }
                     }
                 }
             }
-        } else oldWakeLock?.let { if (it.isHeld) it.release() }
+        } else {
+            oldWifiLock?.let { if (it.isHeld) it.release() }
+            oldWakeLock?.let { if (it.isHeld) it.release() }
+        }
     }
 
     override fun onDestroy() {

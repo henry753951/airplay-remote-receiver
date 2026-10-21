@@ -5,7 +5,7 @@
 **投屏接收・iPhone 遙控・HomePod 傳聲**
 
 將 iPhone、iPad 或 Mac 的畫面與音訊傳送到 Android TV，並透過 iPhone 控制中心內建的
-Apple TV 遙控器操作電視。目前 `0.3.0-alpha1` 原始碼另加入實驗性的電視 → HomePod 音訊輸出。
+Apple TV 遙控器操作電視。目前 `0.3.0-alpha2` 原始碼另加入實驗性的電視 → HomePod 音訊輸出。
 
 **[下載 APK · v0.2.0](https://github.com/henry753951/android-tv-airplay-hub/releases/download/v0.2.0/airplay-remote-receiver-0.2.0-armv7.apk)** ·
 [版本說明](https://github.com/henry753951/android-tv-airplay-hub/releases/tag/v0.2.0) ·
@@ -23,9 +23,9 @@ Apple TV 遙控器操作電視。目前 `0.3.0-alpha1` 原始碼另加入實驗�
 - 分類清楚的影像、音訊、遙控與電源設定。
 - HomePod 傳聲（實驗）：搜尋喇叭、安靜測試音、允許擷取的 App 播放音訊、獨立音量及通知停止按鈕。
 
-### HomePod 傳聲（0.3.0-alpha1）
+### HomePod 傳聲（0.3.0-alpha2）
 
-建置此版本後，開啟首頁「HomePod 傳聲」，選擇喇叭或輸入 IPv4 位址及公告的連接埠，先按「播放測試音」。
+建置此版本後，開啟首頁「HomePod 傳聲」，從自動搜尋的清單選擇喇叭，先按「播放測試音」。
 需要傳送播放器音訊時，按「傳送 App 聲音」，完成音訊權限與 Android 擷取授權，再開啟允許擷取的播放器。
 可從這一頁或常駐通知停止。傳聲不會隨開機或程序重啟自動恢復，每次擷取都需要重新授權。
 

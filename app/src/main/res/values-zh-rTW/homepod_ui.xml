@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HomePod / AirPlay speaker page (HomePodScreen). Kept apart from strings.xml. -->
+<resources>
+    <string name="hp_speakers">喇叭</string>
+    <string name="hp_refresh">重新搜尋</string>
+    <string name="hp_searching">正在搜尋同一網路上的 HomePod 與 AirPlay 喇叭…</string>
+    <string name="hp_still_searching">仍在搜尋其他喇叭…</string>
+    <string name="hp_none_title">找不到喇叭</string>
+    <string name="hp_none_power">確認 HomePod 已接上電源並完成設定。</string>
+    <string name="hp_none_network">電視和喇叭需要連上同一個區域網路。</string>
+    <string name="hp_none_home_app">在 iPhone 的「家庭」App 中，於家庭設定的「喇叭與電視」將存取權設為「同一網路上的所有人」。</string>
+    <string name="hp_permission_title">需要區域網路權限</string>
+    <string name="hp_permission_body">允許後，才能在網路上找到 HomePod 與其他 AirPlay 喇叭。</string>
+    <string name="hp_permission_action">允許存取</string>
+    <string name="hp_scan_error_title">無法搜尋喇叭</string>
+    <string name="hp_scan_error_body">請確認電視已連上網路，然後選擇「重新搜尋」。</string>
+    <string name="hp_pick_prompt">從清單中選擇一個喇叭</string>
+    <string name="hp_row_selected">已選擇</string>
+    <string name="hp_row_sending">傳送中</string>
+    <string name="hp_unavailable">目前找不到這個喇叭，請確認它已開機並在同一個網路上。</string>
+    <string name="hp_sending_to">正在傳送到</string>
+    <string name="hp_status_ready">準備就緒</string>
+    <string name="hp_status_waiting">請在系統視窗中完成授權…</string>
+    <string name="hp_status_connecting">正在連線…</string>
+    <string name="hp_status_audio">正在傳送 App 聲音。請開啟要播放的 App。</string>
+    <string name="hp_status_tone">正在播放測試音，請確認喇叭是否出聲。</string>
+    <string name="hp_failed_body">無法開始或傳送已中斷。請確認喇叭已開機、與電視在同一網路，然後再試一次。</string>
+    <string name="hp_start">開始傳送 App 聲音</string>
+    <string name="hp_start_note">接下來 Android 會詢問「錄音」與「螢幕擷取」權限。本 App 只擷取 App 播放的聲音，不會使用麥克風，也不會錄下畫面。</string>
+    <string name="hp_test">播放測試音</string>
+    <string name="hp_stop">停止傳送</string>
+    <string name="hp_volume">喇叭音量</string>
+    <string name="hp_volume_value" formatted="true">%1$d%%</string>
+    <string name="hp_quieter">調低音量</string>
+    <string name="hp_louder">調高音量</string>
+    <string name="hp_needs_android10">傳送 App 聲音需要 Android 10 或以上版本；仍可播放測試音確認喇叭連線。</string>
+    <string name="hp_cancelled">已取消，尚未開始傳送。</string>
+    <string name="hp_permission_denied">沒有取得錄音權限，無法擷取 App 聲音。本 App 不會使用麥克風。</string>
+    <string name="hp_capture_unavailable">這台電視不支援擷取 App 聲音。仍可播放測試音確認喇叭連線。</string>
+    <string name="hp_limits">部分 App 不允許擷取聲音，這些內容不會傳送到喇叭。AirPlay 喇叭播放會有延遲，觀看影片時聲音可能與畫面不同步。</string>
+</resources>

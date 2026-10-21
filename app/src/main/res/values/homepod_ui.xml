@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HomePod / AirPlay speaker page (HomePodScreen). Kept apart from strings.xml. -->
+<resources>
+    <string name="hp_speakers">Speakers</string>
+    <string name="hp_refresh">Search Again</string>
+    <string name="hp_searching">Looking for HomePod and AirPlay speakers on this network…</string>
+    <string name="hp_still_searching">Still looking for more speakers…</string>
+    <string name="hp_none_title">No Speakers Found</string>
+    <string name="hp_none_power">Make sure the HomePod is plugged in and set up.</string>
+    <string name="hp_none_network">The TV and the speaker must be on the same local network.</string>
+    <string name="hp_none_home_app">In the Home app on iPhone, go to Home Settings › Speakers &amp; TV and allow access for Everyone on the Same Network.</string>
+    <string name="hp_permission_title">Local Network Access Needed</string>
+    <string name="hp_permission_body">Allow it so this TV can find HomePod and other AirPlay speakers on your network.</string>
+    <string name="hp_permission_action">Allow Access</string>
+    <string name="hp_scan_error_title">Can’t Search for Speakers</string>
+    <string name="hp_scan_error_body">Check that the TV is connected to a network, then choose Search Again.</string>
+    <string name="hp_pick_prompt">Choose a speaker from the list</string>
+    <string name="hp_row_selected">Selected</string>
+    <string name="hp_row_sending">Sending</string>
+    <string name="hp_unavailable">This speaker isn’t available right now. Make sure it’s on and on the same network.</string>
+    <string name="hp_sending_to">Sending to</string>
+    <string name="hp_status_ready">Ready</string>
+    <string name="hp_status_waiting">Finish the permission prompts on screen…</string>
+    <string name="hp_status_connecting">Connecting…</string>
+    <string name="hp_status_audio">Sending app audio. Open the app you want to hear.</string>
+    <string name="hp_status_tone">Playing a test tone. Check that the speaker makes a sound.</string>
+    <string name="hp_failed_body">Couldn’t start, or sending stopped. Make sure the speaker is on and on the same network as the TV, then try again.</string>
+    <string name="hp_start">Send App Audio</string>
+    <string name="hp_start_note">Android will next ask to allow audio recording and screen capture. This app captures only the sound apps play. It never uses the microphone or records the screen.</string>
+    <string name="hp_test">Play Test Tone</string>
+    <string name="hp_stop">Stop Sending</string>
+    <string name="hp_volume">Speaker Volume</string>
+    <string name="hp_volume_value" formatted="true">%1$d%%</string>
+    <string name="hp_quieter">Volume Down</string>
+    <string name="hp_louder">Volume Up</string>
+    <string name="hp_needs_android10">Sending app audio needs Android 10 or later. You can still play a test tone to check the speaker.</string>
+    <string name="hp_cancelled">Cancelled. Nothing is being sent.</string>
+    <string name="hp_permission_denied">Without audio recording permission, app audio can’t be captured. This app never uses the microphone.</string>
+    <string name="hp_capture_unavailable">This TV doesn’t support capturing app audio. You can still play a test tone to check the speaker.</string>
+    <string name="hp_limits">Some apps don’t allow their audio to be captured, so it won’t reach the speaker. AirPlay speakers play with a delay, so video sound may be out of sync with the picture.</string>
+</resources>

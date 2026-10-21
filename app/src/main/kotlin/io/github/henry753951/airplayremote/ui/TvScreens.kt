@@ -38,6 +38,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -303,7 +305,7 @@ private fun openSystemSettings(ctx: android.content.Context, action: String) {
 
 // ---- home ----
 
-private enum class TvHomeEntry { CAST, REMOTE, SPEAKERS, SETTINGS }
+private enum class TvHomeEntry { CAST, REMOTE, SPEAKERS }
 
 private const val ATTENTION_DELAY_MS = 1_500L
 
@@ -341,7 +343,9 @@ internal fun TvIdleScreen(
     }
 
     val entries = TvHomeEntry.entries
-    val requesters = remember { List(entries.size) { FocusRequester() } }
+    val requesters = remember { List(entries.size + 1) { FocusRequester() } }
+    val settingsFocus = requesters.last()
+    var settingsFocused by remember { mutableStateOf(false) }
     val actionFocus = remember { FocusRequester() }
     var actionFocused by remember { mutableStateOf(false) }
     // once the problem is fixed its card leaves; the focus must not leave with it
@@ -351,11 +355,12 @@ internal fun TvIdleScreen(
             requesters[0].requestFocusUntilLanded()
         }
     }
-    var focused by remember { mutableStateOf(entries[(focusIndex ?: 0).coerceIn(0, entries.lastIndex)]) }
+    // The gear remembers which primary entry led to it (indices 3–5).
+    var focused by remember { mutableStateOf(entries[(focusIndex ?: 0).coerceAtLeast(0) % entries.size]) }
     // coming back lands where the viewer left; a fresh visit starts on the first entry
     val firstVisit = remember { focusIndex == null }
     var moves by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { requesters[(focusIndex ?: 0).coerceIn(0, entries.lastIndex)].requestFocusUntilLanded() }
+    LaunchedEffect(Unit) { requesters[(focusIndex ?: 0).coerceIn(0, requesters.lastIndex)].requestFocusUntilLanded() }
     // a problem that turns up on a fresh visit, before the viewer has moved, takes the focus to its fix
     LaunchedEffect(attention != null) {
         if (attention != null && firstVisit && moves <= 1) actionFocus.requestFocusUntilLanded()
@@ -379,15 +384,15 @@ internal fun TvIdleScreen(
             Modifier
                 .weight(1f - TV_ART_WEIGHT)
                 .fillMaxHeight()
-                .verticalScroll(rememberScrollState())
-                .padding(top = 64.dp, bottom = 48.dp, end = 40.dp)
+                .padding(top = 40.dp, bottom = 32.dp, end = 40.dp)
                 .graphicsLayer { translationY = (1f - reveal.value) * 12.dp.toPx() }
         ) {
             Text(
                 stringResource(R.string.tv_home_title),
-                color = TvText, fontSize = 40.sp, lineHeight = 48.sp, fontWeight = FontWeight.Light
+                color = TvText, fontSize = 34.sp, lineHeight = 42.sp, fontWeight = FontWeight.Light,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
             // the name sits in the sentence the viewer needs it for, not as a headline
             val waiting = state == ServerState.RUNNING && connections > 0
             Text(
@@ -396,29 +401,26 @@ internal fun TvIdleScreen(
                 } else {
                     tvChooseName(stringResource(R.string.tv_home_hint, serverName), serverName)
                 },
-                color = TvMuted, fontSize = 18.sp, lineHeight = 27.sp
+                color = TvMuted, fontSize = 16.sp, lineHeight = 24.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(36.dp))
-            if (attention != null) {
-                TvAttentionCard(
-                    attention,
-                    Modifier.focusRequester(actionFocus).onFocusChanged { actionFocused = it.isFocused }
-                )
-                Spacer(Modifier.height(20.dp))
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(24.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 entries.forEachIndexed { i, entry ->
                     val labels = when (entry) {
                         TvHomeEntry.CAST -> R.string.tv_home_cast to R.string.tv_home_cast_sub
                         TvHomeEntry.REMOTE -> R.string.tv_home_remote to
                             if (remoteEnabled) R.string.tv_home_remote_sub else R.string.tv_home_remote_off
                         TvHomeEntry.SPEAKERS -> R.string.speaker_title to R.string.speaker_home_sub
-                        TvHomeEntry.SETTINGS -> R.string.tv_settings to R.string.tv_home_settings_sub
                     }
                     TvHomeRow(
                         title = stringResource(labels.first),
                         subtitle = stringResource(labels.second),
-                        modifier = Modifier.focusRequester(requesters[i]),
+                        modifier = Modifier.weight(1f).focusRequester(requesters[i]).focusProperties {
+                            up = if (i == 0) settingsFocus else requesters[i - 1]
+                            down = if (i == entries.lastIndex) FocusRequester.Cancel else requesters[i + 1]
+                            right = if (attention != null) actionFocus else settingsFocus
+                        },
                         onFocused = {
                             focused = entry
                             moves++
@@ -430,7 +432,6 @@ internal fun TvIdleScreen(
                                     TvHomeEntry.CAST -> TvPage.CAST_GUIDE
                                     TvHomeEntry.REMOTE -> TvPage.REMOTE_GUIDE
                                     TvHomeEntry.SPEAKERS -> TvPage.SPEAKERS
-                                    TvHomeEntry.SETTINGS -> TvPage.SETTINGS
                                 }
                             )
                         }
@@ -440,32 +441,59 @@ internal fun TvIdleScreen(
         }
         // the right half answers "what is this?" for the focused entry, with a picture, not words
         Box(Modifier.weight(TV_ART_WEIGHT).fillMaxHeight(), contentAlignment = Alignment.Center) {
-            TvMinuteClock(Modifier.align(Alignment.TopEnd).padding(top = 40.dp))
-            // every picture sits in the same fixed, centred frame, so switching never shifts anything;
-            // the new one rises from the direction the focus moved
-            AnimatedContent(
-                targetState = focused,
-                modifier = Modifier.size(TV_ART_SIZE),
-                contentAlignment = Alignment.Center,
-                transitionSpec = {
-                    val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                    (fadeIn(tween(240, delayMillis = 60)) +
-                        scaleIn(tween(340, easing = FastOutSlowInEasing), initialScale = 0.94f) +
-                        slideInVertically(tween(340, easing = FastOutSlowInEasing)) { h -> dir * h / 12 })
-                        .togetherWith(
-                            fadeOut(tween(140)) +
-                                slideOutVertically(tween(240, easing = FastOutSlowInEasing)) { h -> -dir * h / 16 }
-                        )
-                        .using(SizeTransform(clip = false))
-                },
-                label = "art"
-            ) { entry ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    when (entry) {
-                        TvHomeEntry.CAST -> TvCastArt()
-                        TvHomeEntry.REMOTE -> TvRemoteArt(remoteEnabled)
-                        TvHomeEntry.SPEAKERS -> Text("♫", color = TvText, fontSize = 160.sp)
-                        TvHomeEntry.SETTINGS -> TvSettingsArt()
+            Row(
+                Modifier.align(Alignment.TopEnd).padding(top = 32.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                TvMinuteClock()
+                Box(
+                    Modifier.size(48.dp).focusRequester(settingsFocus).focusProperties {
+                        left = requesters[focused.ordinal]
+                        down = if (attention != null) actionFocus else requesters[focused.ordinal]
+                    }.onFocusChanged {
+                        settingsFocused = it.isFocused
+                        if (it.isFocused) onFocusIndex(entries.size + focused.ordinal)
+                    }.clip(CircleShape)
+                        .background(if (settingsFocused) TvText else Color(0x1FFFFFFF))
+                        .clickable(role = Role.Button) { go(TvPage.SETTINGS) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Settings, stringResource(R.string.tv_settings), Modifier.size(24.dp),
+                        tint = if (settingsFocused) TvInk else TvText)
+                }
+            }
+            if (attention != null) {
+                Box(Modifier.fillMaxSize().padding(top = 96.dp, bottom = 32.dp)
+                    .verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
+                    TvAttentionCard(attention, Modifier.focusRequester(actionFocus)
+                        .onFocusChanged { actionFocused = it.isFocused }
+                        .focusProperties { left = requesters[focused.ordinal]; up = settingsFocus })
+                }
+            } else {
+                AnimatedContent(
+                    targetState = focused,
+                    modifier = Modifier.padding(top = 56.dp).size(TV_ART_SIZE),
+                    contentAlignment = Alignment.Center,
+                    transitionSpec = {
+                        val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                        (fadeIn(tween(240, delayMillis = 60)) +
+                            scaleIn(tween(340, easing = FastOutSlowInEasing), initialScale = 0.94f) +
+                            slideInVertically(tween(340, easing = FastOutSlowInEasing)) { h -> dir * h / 12 })
+                            .togetherWith(
+                                fadeOut(tween(140)) +
+                                    slideOutVertically(tween(240, easing = FastOutSlowInEasing)) { h -> -dir * h / 16 }
+                            )
+                            .using(SizeTransform(clip = false))
+                    },
+                    label = "art"
+                ) { entry ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        when (entry) {
+                            TvHomeEntry.CAST -> TvCastArt()
+                            TvHomeEntry.REMOTE -> TvRemoteArt(remoteEnabled)
+                            TvHomeEntry.SPEAKERS -> Icon(Icons.Default.Speaker, null, Modifier.size(120.dp), tint = TvText)
+                        }
                     }
                 }
             }
@@ -520,14 +548,14 @@ private fun TvHomeRow(
             .clip(RoundedCornerShape(18.dp))
             .background(bg)
             .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button, onClick = onClick)
-            .heightIn(min = 76.dp)
-            .padding(horizontal = 26.dp, vertical = 14.dp),
+            .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = fg, fontSize = 21.sp, fontWeight = FontWeight.Medium)
+            Text(title, color = fg, fontSize = 21.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = sub, fontSize = 16.sp)
+            Text(subtitle, color = sub, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(16.dp))
         Text("›", color = sub, fontSize = 24.sp)
@@ -591,19 +619,6 @@ private fun TvRemoteArt(enabled: Boolean) {
             listOf(0.32f, 0.68f).forEach { x ->
                 drawCircle(tint, radius = r, center = androidx.compose.ui.geometry.Offset(size.width * x, size.height * y), style = Stroke(width = w))
             }
-        }
-    }
-}
-
-@Composable
-private fun TvSettingsArt() {
-    Canvas(Modifier.size(width = 280.dp, height = 210.dp)) {
-        val w = 2.dp.toPx()
-        listOf(0.2f to 0.68f, 0.5f to 0.32f, 0.8f to 0.55f).forEach { track ->
-            val cy = size.height * track.first
-            val knob = track.second
-            drawLine(TvText.copy(alpha = 0.22f), androidx.compose.ui.geometry.Offset(0f, cy), androidx.compose.ui.geometry.Offset(size.width, cy), strokeWidth = w)
-            drawCircle(TvText, radius = 12.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * knob, cy))
         }
     }
 }
